@@ -1,5 +1,5 @@
 module RegFile( 
-input clk,reset,write_enable
+input clk,reset,write_enable,
 input [4:0] rd, rs1, rs2,
 input [31:0] rw,
 output reg [31:0] rs1out,rs2out

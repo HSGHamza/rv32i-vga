@@ -12,7 +12,14 @@ module decoder(
 
 always @(*)
 begin
-
+    // Defaults to prevent inferred latches
+    opcodout = 7'd0;
+    rd       = 5'd0;
+    rs1      = 5'd0;
+    rs2      = 5'd0;
+    func3    = 3'd0;
+    func7    = 7'd0;
+    imm      = 32'd0;
 
     // R-FORMAT
     // opcode = 0110011 = 51

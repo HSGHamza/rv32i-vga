@@ -12,7 +12,7 @@ module RI_alu (
 
 reg [31:0] operand2;
 
-always @(posedge clk) begin
+always @(*) begin
     if (opcode == 7'b0110011)       // R-type
         operand2 = op2;
 

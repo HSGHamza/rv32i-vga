@@ -5,7 +5,7 @@ module bAlu(
     output reg jump
 );
 
-always @(posedge clk)
+always @(*)
 begin
 
     jump = 1'b0;
