@@ -1,7 +1,6 @@
 module instructionMemory (
     input             clk,
     input             reset,
-    input             read_enable,
     input      [31:0] address,
     output reg [31:0] data_out
 );
@@ -28,7 +27,7 @@ module instructionMemory (
     always @(posedge clk) begin
         if (reset) begin
             data_out <= 32'b0;
-        end else if (read_enable) begin
+        end else begin
             data_out <= {
                 memory[address + 3],
                 memory[address + 2],
