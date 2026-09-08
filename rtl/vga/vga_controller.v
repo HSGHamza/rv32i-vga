@@ -1,61 +1,34 @@
 `timescale 1ns / 1ps
 
-module vga_controller #(
-    parameter int AXI_ADDR_WIDTH = 32,
-    parameter int AXI_DATA_WIDTH = 32,
-    parameter int FB_WIDTH       = 640,
-    parameter int FB_HEIGHT      = 480,
-    parameter logic [AXI_ADDR_WIDTH-1:0] FB_BASE_ADDR = 32'h5000_0000
-)(
+module vga_controller (
     input  wire        clk,
-    input  wire        rst,       // Active-high reset
+    input  wire        rst,
 
-    // AXI4-Lite Slave Interface (CPU side)
-    // Write Address Channel
-    input  wire [AXI_ADDR_WIDTH-1:0]     awaddr,
-    input  wire                          awvalid,
-    output wire                          awready,
+    // Interface to/from vga_registers
+    input  wire        display_enable,
+    output wire        vga_fb_req,
+    output wire [20:0] vga_fb_addr,
+    output wire        vga_video_on,
 
-    // Write Data Channel
-    input  wire [AXI_DATA_WIDTH-1:0]     wdata,
-    input  wire [AXI_DATA_WIDTH/8-1:0]   wstrb,
-    input  wire                          wvalid,
-    output wire                          wready,
+    // Pixel data input from Framebuffer SRAM
+    input  wire [31:0] vga_data,
 
-    // Write Response Channel
-    output wire [1:0]                    bresp,
-    output wire                          bvalid,
-    input  wire                          bready,
-
-    // Read Address Channel
-    input  wire [AXI_ADDR_WIDTH-1:0]     araddr,
-    input  wire                          arvalid,
-    output wire                          arready,
-
-    // Read Data Channel
-    output wire [AXI_DATA_WIDTH-1:0]     rdata,
-    output wire [1:0]                    rresp,
-    output wire                          rvalid,
-    input  wire                          rready,
-
-    // VGA Outputs (Display side)
-    output wire                          Hsync,
-    output wire                          Vsync,
-    output wire [7:0]                    red,
-    output wire [7:0]                    green,
-    output wire [7:0]                    blue
+    // VGA Physical Pins (1-cycle delayed to align with SRAM read latency)
+    output wire        Hsync,
+    output wire        Vsync,
+    output wire [7:0]  red,
+    output wire [7:0]  green,
+    output wire [7:0]  blue
 );
 
-    // Active-low reset generation for AXI framebuffer
-    wire resetn;
-    assign resetn = ~rst;
-
-    // Internal interconnect wires
     wire [15:0] H_count;
     wire [15:0] V_count;
-    wire        video_on;
-    wire [20:0] pixel_addr;
-    wire [31:0] vga_data;
+    wire        raw_video_on;
+    wire        raw_hsync;
+    wire        raw_vsync;
+
+    assign vga_video_on = raw_video_on;
+    assign vga_fb_req   = raw_video_on && display_enable;
 
     // 1. VGA Timing Generator
     vga_timing u_vga_timing (
@@ -63,67 +36,41 @@ module vga_controller #(
         .rst      (rst),
         .H_count  (H_count),
         .V_count  (V_count),
-        .Hsync    (Hsync),
-        .Vsync    (Vsync),
-        .video_on (video_on)
+        .Hsync    (raw_hsync),
+        .Vsync    (raw_vsync),
+        .video_on (raw_video_on)
     );
 
-    // 2. Pixel Byte Address Generator
+    // 2. Pixel Address Generator
     pixel_addr_gen u_pixel_addr_gen (
         .H_count    (H_count),
         .V_count    (V_count),
-        .video_on   (video_on),
-        .pixel_addr (pixel_addr)
+        .video_on   (raw_video_on),
+        .pixel_addr (vga_fb_addr)
     );
 
-    // 3. AXI Framebuffer
-    axi_framebuffer #(
-        .AXI_ADDR_WIDTH (AXI_ADDR_WIDTH),
-        .AXI_DATA_WIDTH (AXI_DATA_WIDTH),
-        .FB_WIDTH       (FB_WIDTH),
-        .FB_HEIGHT      (FB_HEIGHT),
-        .FB_BASE_ADDR   (FB_BASE_ADDR)
-    ) u_axi_framebuffer (
-        .clk      (clk),
-        .resetn   (resetn),
+    // 3. Pipeline Register: Delay HSYNC & VSYNC by 1 clock cycle to match SRAM synchronous read latency
+    reg hsync_d1;
+    reg vsync_d1;
 
-        // AXI Write Address Channel
-        .awaddr   (awaddr),
-        .awvalid  (awvalid),
-        .awready  (awready),
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            hsync_d1 <= 1'b1;
+            vsync_d1 <= 1'b1;
+        end else begin
+            hsync_d1 <= raw_hsync;
+            vsync_d1 <= raw_vsync;
+        end
+    end
 
-        // AXI Write Data Channel
-        .wdata    (wdata),
-        .wstrb    (wstrb),
-        .wvalid   (wvalid),
-        .wready   (wready),
+    assign Hsync = hsync_d1;
+    assign Vsync = vsync_d1;
 
-        // AXI Write Response Channel
-        .bresp    (bresp),
-        .bvalid   (bvalid),
-        .bready   (bready),
-
-        // AXI Read Address Channel
-        .araddr   (araddr),
-        .arvalid  (arvalid),
-        .arready  (arready),
-
-        // AXI Read Data Channel
-        .rdata    (rdata),
-        .rresp    (rresp),
-        .rvalid   (rvalid),
-        .rready   (rready),
-
-        // VGA Pixel Read Port
-        .vga_addr (pixel_addr),
-        .vga_data (vga_data)
-    );
-
-    // 4. RGB Output Stage
+    // 4. RGB Output Stage (uses internal 1-cycle delayed video_on, blanks when display_enable = 0)
     rgb_output u_rgb_output (
         .clk      (clk),
         .rst      (rst),
-        .video_on (video_on),
+        .video_on (raw_video_on && display_enable),
         .vga_data (vga_data),
         .red      (red),
         .green    (green),
