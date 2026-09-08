@@ -30,10 +30,7 @@ ProgramCounter pc(
 instructionMemory instr_mem(
 .clk(clk),
 .reset(reset),
-.write_enable(),
-.read_enable(read_enable),
 .address(pcRegister),
-.data_in(//assembly code),
 .data_out(instruction)
 );
 
@@ -49,13 +46,15 @@ decoder decoded(
 );
 
 RegFile registerFile(
-clk(clk),
-rd(rd),
-rs1(rs1),
-rs2(rs2),
-rw(rw),
-rs1out(rs1out),
-rs2out(rs2out)
+.clk(clk),
+.rs(reset),
+.write_enable(write_enable),
+.rd(rd),
+.rs1(rs1),
+.rs2(rs2),
+.rw(rw),
+.rs1out(rs1out),
+.rs2out(rs2out)
 );
 
 alu alu(
