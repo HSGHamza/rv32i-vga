@@ -7,7 +7,6 @@ module decoder(
     output reg [4:0] rs2,
     output reg [2:0] func3,
     output reg [6:0] func7,
-
     output reg [31:0] imm
 );
 

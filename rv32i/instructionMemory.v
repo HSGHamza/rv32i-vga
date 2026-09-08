@@ -1,47 +1,41 @@
 module instructionMemory (
-    input clk,
-    input reset,
-    input write_enable,
-    input read_enable,
-    input [3:0] address,
-    input [31:0] data_in,
+    input             clk,
+    input             reset,
+    input             read_enable,
+    input      [31:0] address,
     output reg [31:0] data_out
 );
 
-reg [7:0] memory [0:63];
-integer i;
+    reg [7:0] memory [0:255];
 
-always @(*)
-begin
-memory[i] = data_in[7:0] 
-memory[i] = data_in[15:8]
-memory[i] = data_in[23:16]
-memory[i] = data_in[31:24]
-end
+    // Temporary 32-bit buffer to read the file (64 instructions)
+    reg [31:0] temp_mem [0:63];
+    integer k;
 
-always @(*)
-begin
-data_out[7:0] = memory[i] 
-data_out[15:8] = memory[i] 
-data_out[23:16] = memory[i] 
-data_out[31:24] = memory[i] 
-end
+    initial begin
+        // 1. Read 32-bit hex instructions from file
+        $readmemh("instructions.hex", temp_mem);
 
-always @(posedge clk) begin
-    if (reset) begin
-        for (i = 0; i < 16; i = i + 1)
-            memory[i] <= 32'b0;
-        data_out <= 32'b0;
+        // 2. Unpack the instr into our instr mem
+        for (k = 0; k < 64; k = k + 1) begin
+            memory[4*k + 0] = temp_mem[k][7:0];   // Byte 0 (LSB)
+            memory[4*k + 1] = temp_mem[k][15:8];  // Byte 1
+            memory[4*k + 2] = temp_mem[k][23:16]; // Byte 2
+            memory[4*k + 3] = temp_mem[k][31:24]; // Byte 3 (MSB)
+        end
     end
 
-        if (write_enable)
-            memory[address] <= data_in;
-
-        if (read_enable)
-            data_out <= memory[address];
+    always @(posedge clk) begin
+        if (reset) begin
+            data_out <= 32'b0;
+        end else if (read_enable) begin
+            data_out <= {
+                memory[address + 3],
+                memory[address + 2],
+                memory[address + 1],
+                memory[address]
+            };
+        end
     end
-end
 
 endmodule
-
-
