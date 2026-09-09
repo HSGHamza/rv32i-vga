@@ -1,414 +1,563 @@
-# RV32I Processor Core with VGA Subsystem
+# RV32I Processor Core with AXI-4 Interconnect & VGA Subsystem
 
-A 32-bit RISC-V (RV32I Base Integer ISA) processor core written in synthesizable Verilog HDL, designed as the central processing unit for an integrated System-on-Chip (SoC) featuring an AXI-4 interconnect and a hardware VGA graphics controller.
+A complete 32-bit RISC-V (RV32I Base Integer ISA) System-on-Chip (SoC) implemented in synthesizable Verilog HDL. The system integrates a custom single-cycle RV32I microprocessor core, an AXI4-Lite bus interconnect, memory-mapped I/O, an on-chip dual-port video framebuffer controller, and an interactive bare-metal Ping Pong game deployed to the **Digilent Zybo Z7-10** FPGA using the open-source **F4PGA / SymbiFlow** toolchain.
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Architecture & Features](#architecture--features)
-- [Microarchitecture Datapath](#microarchitecture-datapath)
-- [Module Breakdown](#module-breakdown)
-- [Instruction Set Architecture (ISA) Support](#instruction-set-architecture-isa-support)
-- [Control Logic Unit](#control-logic-unit)
-- [Memory Organization](#memory-organization)
-- [System Integration (RV32I + AXI + VGA)](#system-integration-rv32i--axi--vga)
-- [Simulation & Verification](#simulation--verification)
-- [File Structure](#file-structure)
+- [System Architecture](#system-architecture)
+- [Memory Map & Interconnect](#memory-map--interconnect)
+- [Microprocessor Core (RV32I)](#microprocessor-core-rv32i)
+  - [Datapath Architecture](#datapath-architecture)
+  - [Supported Instruction Set](#supported-instruction-set)
+  - [Control Logic Unit](#control-logic-unit)
+  - [Core Module Breakdown](#core-module-breakdown)
+- [On-Chip Interconnect & AXI4-Lite Bridge](#on-chip-interconnect--axi4-lite-bridge)
+  - [RV32I to AXI4-Lite Bridge](#rv32i-to-axi4-lite-bridge)
+  - [AXI Crossbar Decoder](#axi-crossbar-decoder)
+  - [AXI Data Memory](#axi-data-memory)
+- [VGA Graphics Controller Subsystem](#vga-graphics-controller-subsystem)
+  - [Resolution & 4x Hardware Pixel Scaling](#resolution--4x-hardware-pixel-scaling)
+  - [Framebuffer Architecture & BRAM Footprint](#framebuffer-architecture--bram-footprint)
+  - [Memory-Mapped VGA Registers](#memory-mapped-vga-registers)
+  - [Pmod RGB111 Physical Interface](#pmod-rgb111-physical-interface)
+- [FPGA Implementation (Digilent Zybo Z7-10)](#fpga-implementation-digilent-zybo-z7-10)
+  - [Clock & Reset Architecture](#clock--reset-architecture)
+  - [Diagnostic LEDs & Peripheral Pinout](#diagnostic-leds--peripheral-pinout)
+- [Bare-Metal Application: Ping Pong Game](#bare-metal-application-ping-pong-game)
+  - [Game Mechanics & Features](#game-mechanics--features)
+  - [Flicker-Free Rendering Engine](#flicker-free-rendering-engine)
+  - [Assembling & Updating Software](#assembling--updating-software)
+- [Build System & Toolchain Guide](#build-system--toolchain-guide)
+  - [Makefile Targets](#makefile-targets)
+  - [Synthesizing & Generating Bitstream (F4PGA)](#synthesizing--generating-bitstream-f4pga)
+  - [Board Programming (openFPGALoader)](#board-programming-openfpgaloader)
+- [Verification & Simulation](#verification--simulation)
+  - [Testbench Suite](#testbench-suite)
+  - [Running SoC Simulation](#running-soc-simulation)
+- [Repository File Structure](#repository-file-structure)
+- [License](#license)
 
 ---
 
 ## Overview
 
-This repository contains the complete single-cycle implementation of a **RISC-V 32-bit Integer (RV32I)** microprocessor core. The core provides native execution for all fundamental integer instructions including register-register operations, immediate arithmetic, loads, stores, conditional branches, and unconditional jumps.
+This project implements an end-to-end computer system on an FPGA, spanning from CPU instruction decoding to real-time video generation and physical user I/O:
 
-The processor is integrated with an on-chip **AXI crossbar bus** (`rtl/bus/axi_decoder.v`) and an **on-chip VGA display controller subsystem** (`rtl/vga/`), enabling real-time frame rendering directly driven by CPU memory-mapped writes.
+- **CPU Core**: 32-bit single-cycle RISC-V (RV32I) processor core with pipeline stall support for memory transactions.
+- **Bus Standard**: Standard AXI4-Lite protocol decoupling the CPU pipeline from peripheral timing.
+- **Memory Architecture**: Separate 1 KB local Instruction Memory (ROM) and memory-mapped AXI Data Memory (RAM).
+- **Video Subsystem**: Custom hardware VGA controller generating standard 640x480 @ 60 Hz timing, featuring a 160x120 internal frame buffer with 4x hardware pixel replication and single Pmod RGB111 output.
+- **Interactive Bare-Metal Demo**: Real-time 2-player Ping Pong game (`pong.s`) featuring physics ball collision, paddle controls via physical pushbuttons, and an automated AI player toggleable via a slide switch.
+- **Target Platform**: Digilent Zybo Z7-10 (Xilinx Zynq-7000 `xc7z010clg400-1`).
+- **Fully Open-Source EDA Flow**: Synthesized, packed, placed, routed, and assembled using F4PGA / SymbiFlow (Yosys + VPR + prjxray) without requiring proprietary toolchains.
 
-```
-+-------------------------------------------------------------+
-|                      RV32I-VGA SoC                          |
-|                                                             |
-|  +--------------------+             +--------------------+  |
-|  |                    |   Memory    |                    |  |
-|  |  RV32I Processor   |------------>|    AXI Crossbar    |  |
-|  |     Core (CPU)     |  Bus / MMIO |    Bus Decoder     |  |
-|  +--------------------+             +--------------------+  |
-|                                            |     |          |
-|                                            v     v          |
-|                     +-------------------------+  +-------+  |
-|                     |     VGA Subsystem       |  | Frame |  |
-|                     | (Timing, Control, Regs) |  | SRAM  |  |
-|                     +-------------------------+  +-------+  |
-|                                  |                          |
-|                                  v                          |
-|                         VGA RGB / Sync Pins                 |
-+-------------------------------------------------------------+
+---
+
+## System Architecture
+
+```mermaid
+flowchart TB
+    subgraph FPGA_TOP [Digilent Zybo Z7-10: zybo_top.v]
+        CLK125[125 MHz Oscillator] --> CLK_DIV[Clock Divider /5]
+        CLK_DIV -->|25 MHz Pixel Clock| SOC
+        SW_RST[Switch SW0: Reset] --> RST_SYNC[Reset Synchronizer]
+        RST_SYNC --> SOC
+        BTNS[Buttons BTN0..3] --> SOC
+        SWS[Switches SW1..3] --> SOC
+
+        subgraph SOC [SoC Top-Level: soc_top.v]
+            subgraph CPU [RV32I Processor Core: Datapath.v]
+                PC[ProgramCounter]
+                IMEM[Instruction Memory 1KB]
+                DEC[Instruction Decoder]
+                CTRL[Control Logic Unit]
+                RF[Register File 32x32]
+                ALU[ALU & Branch Unit]
+            end
+
+            BRIDGE[RV32I to AXI4-Lite Bridge: rv32i_axi_bridge.v]
+            DECODER[AXI Crossbar Decoder: axi_decoder.v]
+
+            subgraph SLV0 [Slave 0: Data RAM]
+                DMEM[AXI Data Memory 256B: axi_data_memory.v]
+            end
+
+            subgraph SLV1 [Slave 1: VGA Subsystem]
+                VGA_REG[VGA Registers & Arbiter: vga_registers.v]
+                FB_RAM[Framebuffer SRAM 76.8KB: framebuffer_sram.v]
+                VGA_CTRL[VGA Controller: vga_controller.v]
+                VGA_TIME[Timing Generator: vga_timing.v]
+                PIX_GEN[4x Pixel Address Gen: pixel_addr_gen.v]
+                RGB_OUT[RGB Output Formatter: rgb_output.v]
+            end
+        end
+
+        SOC --> LEDS[Status LEDs: Active, Stall, MemWr, Heartbeat]
+        SOC --> PMOD_JC[Pmod JC: Red, Green, Blue, HSync, VSync]
+    end
+
+    CPU <-->|addr, wdata, we, re, rdata, stall| BRIDGE
+    BRIDGE <-->|AXI4-Lite Master| DECODER
+    DECODER <-->|AXI4-Lite Slave 0 (0x0000_0000)| DMEM
+    DECODER <-->|AXI4-Lite Slave 1 (0x1000_0000 / 0x5000_0000)| VGA_REG
+    VGA_REG <-->|Arbitrated Word Access| FB_RAM
+    FB_RAM -->|Pixel Stream| VGA_CTRL
+    VGA_CTRL --> RGB_OUT
 ```
 
 ---
 
-## Architecture & Features
+## Memory Map & Interconnect
 
-- **Standard**: RISC-V unprivileged ISA specification (RV32I Base Integer Instruction Set).
-- **Execution Model**: Single-cycle microarchitecture. Every instruction fetches, decodes, executes, accesses memory, and commits write-back in a single clock cycle.
-- **Data Width**: 32-bit datapath, 32-bit Program Counter (PC), 32-bit ALU, 32-bit General Purpose Registers (GPRs).
-- **Register File**: 32 x 32-bit integer registers (`x0` through `x31`), with `x0` hardwired to constant `0`. Dual asynchronous read ports, single synchronous write port.
-- **Instruction Memory (Local ROM)**: 256-byte byte-addressable memory (stores up to 64 instructions), pre-loadable via `$readmemh("instructions.hex", ...)`.
-- **Data Memory (Local RAM)**: 256-byte byte-addressable memory with synchronous read and write.
-- **Branch & Jump Handling**: Dedicated Branch ALU (`bAlu`) supporting signed/unsigned relational comparisons and dedicated target address generation in the Program Counter.
-- **Bus Monitoring Interface**: Direct top-level access to memory address (`mem_addr`), write data (`mem_wdata`), memory write enable (`mem_write`), and memory read enable (`mem_read`) for bus bridging and verification.
+The system employs a unified 32-bit physical address map. Address decoding is performed by [`rtl/bus/axi_decoder.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus/axi_decoder.v):
+
+| Address Range | Size | Slave Target | Access | Description |
+| :--- | :---: | :--- | :---: | :--- |
+| `0x0000_0000 - 0x0000_00FF` | 256 B | **Slave 0: Data RAM** | R/W | Local CPU general data storage ([`axi_data_memory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus/axi_data_memory.v)). |
+| `0x1000_0000 - 0x1000_001F` | 32 B | **Slave 1: VGA Control Registers** | R/W | Memory-mapped video control, display status, and physical button/switch inputs ([`vga_registers.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/vga/vga_registers.v)). |
+| `0x5000_0000 - 0x5001_2BFF` | 76.8 KB | **Slave 1: Video Framebuffer** | R/W | On-chip video memory storing 160x120 32-bit pixel words (`0x00RRGGBB`). |
+
+### Memory-Mapped I/O (MMIO) Registers
+
+Located in Slave 1 at base `0x1000_0000`:
+
+| Address Offset | Register Name | Access | Bitfields & Functionality |
+| :---: | :--- | :---: | :--- |
+| `0x1000_0000` | **`VGA_CTRL`** | R/W | `[0]`: `display_enable` (1 = Enable raster streaming to display, 0 = Blank output). |
+| `0x1000_0004` | **`VGA_STATUS`** | RO | `[0]`: `video_on` (Active video scanning interval).<br>`[1]`: `fb_busy` (VGA raster currently reading framebuffer).<br>`[5:2]`: `btn[3:0]` (Debounced pushbutton inputs).<br>`[9:6]`: `sw[3:0]` (Slide switch positions). |
+| `0x1000_0008` | **`FB_BASE`** | RO | Returns fixed framebuffer base address (`32'h5000_0000`). |
+| `0x1000_000C` | **`FB_SIZE`** | R/W | `[15:0]`: Framebuffer Width (160 default).<br>`[31:16]`: Framebuffer Height (120 default). |
+| `0x1000_0010` | **`INPUTS`** | RO | Direct peripheral reading:<br>`[3:0]`: Pushbuttons `btn[3:0]`.<br>`[7:4]`: Slide switches `sw[3:0]`. |
 
 ---
 
-## Microarchitecture Datapath
+## Microprocessor Core (RV32I)
 
-The complete processor core is structured inside `rv32i/Datapath.v`. The diagram below illustrates the signal routing and interconnection of all constituent hardware units:
+The processor core is located in [`rtl/rv32i/`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i) and implements the unprivileged RISC-V 32-bit Base Integer Instruction Set (RV32I).
+
+### Datapath Architecture
+
+The top-level CPU datapath is defined in [`rtl/rv32i/Datapath.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/Datapath.v):
+
+- **Single-Cycle Base**: Under normal execution, every instruction fetches, decodes, calculates ALU results, and commits in a single cycle.
+- **Pipeline Stall Mechanism**: When accessing the memory bus, the AXI bridge asserts `stall` to freeze the Program Counter (`ProgramCounter.v`) and gate register file write enables (`write_enable = reg_write && !stall`). Once the AXI transaction completes, write-back commits and execution resumes seamlessly.
+- **Register File**: 32 general-purpose 32-bit registers (`x0` - `x31`). `x0` is hardwired to `0`. Dual asynchronous read ports and a single synchronous write port.
+- **Instruction Memory**: 1 KB (256 words x 32-bit) byte-addressable ROM preloaded at synthesis or simulation start with [`instructions.hex`](file:///c:/Users/HSG/Desktop/rv32i-vga/instructions.hex).
 
 ```mermaid
 flowchart LR
     subgraph IF [Instruction Fetch]
-        PC[ProgramCounter]
-        IMEM[instructionMemory]
-        PC -->|pcRegister[31:0]| IMEM
+        PC[ProgramCounter] -->|pcRegister| IMEM[instructionMemory 1KB]
     end
 
-    subgraph ID [Decode & Control]
-        DEC[decoder]
-        CTRL[ControlLogic]
-        IMEM -->|instr[31:0]| DEC
-        DEC -->|opcodout[6:0]| CTRL
-    end
-
-    subgraph RF [Register File]
-        REG[RegFile (32x32)]
-        DEC -->|rs1, rs2, rd| REG
-        CTRL -->|reg_write| REG
+    subgraph ID [Decode & Registers]
+        IMEM -->|instr| DEC[decoder]
+        DEC -->|opcode| CTRL[ControlLogic]
+        DEC -->|rs1, rs2, rd| RF[RegFile 32x32]
+        CTRL -->|reg_write & !stall| RF
     end
 
     subgraph EX [Execution & ALU]
-        ALU_TOP[alu]
-        RI[RI_alu]
-        BA[bAlu]
-        ALU_TOP -.-> RI
-        ALU_TOP -.-> BA
-        REG -->|rs1out, rs2out| ALU_TOP
-        DEC -->|imm, func3, func7| ALU_TOP
-        PC -->|pcRegister| ALU_TOP
-        ALU_TOP -->|doesB (jump)| PC
-        DEC -->|imm| PC
+        RF -->|rs1out, rs2out| ALU[alu / RI_alu]
+        DEC -->|imm, func3, func7| ALU
+        ALU -->|doesB / jump| PC
     end
 
-    subgraph MEM [Data Memory]
-        DMEM[dataMemory]
-        ALU_TOP -->|alu_out (address)| DMEM
-        REG -->|rs2out (data_in)| DMEM
-        CTRL -->|mem_read, mem_write| DMEM
-    end
-
-    subgraph WB [Write-Back]
-        MUX_WB{"mem_to_reg == 2'b01"}
-        DMEM -->|mem_data_out| MUX_WB
-        ALU_TOP -->|alu_out| MUX_WB
-        MUX_WB -->|rw| REG
+    subgraph MEM_WB [Bus Interface & Write-Back]
+        ALU -->|alu_out -> mem_addr| BUS[AXI Bridge]
+        RF -->|rs2out -> mem_wdata| BUS
+        CTRL -->|mem_read, mem_write| BUS
+        BUS -->|stall| PC
+        BUS -->|mem_rdata| MUX_WB{mem_to_reg}
+        ALU -->|alu_out| MUX_WB
+        MUX_WB -->|rw| RF
     end
 ```
 
----
+### Supported Instruction Set
 
-## Module Breakdown
+#### 1. R-Type (Register-Register Operations)
+*Opcode `7'b0110011` (`0x33`)*
 
-All hardware modules of the RV32I core reside in the [`rv32i/`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i) directory:
-
-| Module File | Top Module Name | Description |
-| :--- | :--- | :--- |
-| [`Datapath.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/Datapath.v) | `Datapath` | Top-level processor core connecting PC, Instruction Memory, Decoder, Control Logic, Register File, ALU subsystem, Data Memory, and Write-Back logic. |
-| [`ProgramCounter.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/ProgramCounter.v) | `ProgramCounter` | Generates next PC address: sequential (`PC+4`), branch target (`PC+imm`), direct jump (`PC+imm` for JAL), or indirect jump (`(rs1+imm) & ~1` for JALR). |
-| [`instructionMemory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/instructionMemory.v) | `instructionMemory` | Byte-addressable ROM containing 256 bytes (64 instructions). Little-endian reconstruction from byte slices. Preloaded from `instructions.hex`. |
-| [`decoder.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/decoder.v) | `decoder` | Combinational instruction decoder. Extracts `opcode`, `rd`, `rs1`, `rs2`, `func3`, `func7`, and produces sign-extended 32-bit immediates for I, S, B, U, and J formats. |
-| [`ControlLogic.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/ControlLogic.v) | `ControlLogic` | Main control unit translating 7-bit opcodes into control signals (`reg_write`, `mem_read`, `mem_write`, `alu_src`, `mem_to_reg`, `branch`, `jump`, `alu_op`). |
-| [`RegFile.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/RegFile.v) | `RegFile` | 32 x 32-bit general-purpose register file (`x0`-`x31`). Dual asynchronous read ports (`rs1out`, `rs2out`) and one synchronous write port (`rw` to `rd`). `x0` hardwired to 0. |
-| [`alu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/alu.v) | `alu` | Top-level arithmetic module encapsulating `RI_alu` and `bAlu`. Also computes memory effective addresses, AUIPC (`PC + imm`), LUI (`imm`), and jump return links (`PC + 4`). |
-| [`RI_alu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/RI_alu.v) | `RI_alu` | Execution unit for register-register (R-type) and register-immediate (I-type) arithmetic and logical instructions (ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND). |
-| [`bAlu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/bAlu.v) | `bAlu` | Branch comparison unit computing branch outcomes (`jump = 1'b1`) for BEQ, BNE, BLT, BGE, BLTU, and BGEU based on `func3`. |
-| [`dataMemory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rv32i/dataMemory.v) | `dataMemory` | Synchronous 256-byte data RAM. Supports 32-bit word loads and stores with little-endian byte ordering. |
-
----
-
-## Instruction Set Architecture (ISA) Support
-
-The core implements the standard 32-bit RV32I Base Integer instruction set:
-
-### 1. R-Type (Register-Register Arithmetic & Logic)
-- **Opcode**: `7'b0110011` (`7'd51`)
-- **Format**: `func7[31:25] | rs2[24:20] | rs1[19:15] | func3[14:12] | rd[11:7] | opcode[6:0]`
-
-| Mnemonic | func3 | func7 | Operation | Description |
+| Instruction | func3 | func7 | Operation | Description |
 | :--- | :---: | :---: | :--- | :--- |
-| **ADD** | `000` | `0000000` | `rd = rs1 + rs2` | Integer Addition |
-| **SUB** | `000` | `0100000` | `rd = rs1 - rs2` | Integer Subtraction |
+| **ADD** | `000` | `0000000` | `rd = rs1 + rs2` | Addition |
+| **SUB** | `000` | `0100000` | `rd = rs1 - rs2` | Subtraction |
 | **SLL** | `001` | `0000000` | `rd = rs1 << rs2[4:0]` | Shift Left Logical |
 | **SLT** | `010` | `0000000` | `rd = ($signed(rs1) < $signed(rs2)) ? 1 : 0` | Set Less Than (Signed) |
 | **SLTU** | `011` | `0000000` | `rd = (rs1 < rs2) ? 1 : 0` | Set Less Than Unsigned |
-| **XOR** | `100` | `0000000` | `rd = rs1 ^ rs2` | Bitwise Exclusive-OR |
+| **XOR** | `100` | `0000000` | `rd = rs1 ^ rs2` | Bitwise XOR |
 | **SRL** | `101` | `0000000` | `rd = rs1 >> rs2[4:0]` | Shift Right Logical |
-| **SRA** | `101` | `0100000` | `rd = $signed(rs1) >>> rs2[4:0]` | Shift Right Arithmetic (Sign-Extended) |
+| **SRA** | `101` | `0100000` | `rd = $signed(rs1) >>> rs2[4:0]` | Shift Right Arithmetic |
 | **OR** | `110` | `0000000` | `rd = rs1 \| rs2` | Bitwise OR |
 | **AND** | `111` | `0000000` | `rd = rs1 & rs2` | Bitwise AND |
 
-### 2. I-Type (Register-Immediate ALU)
-- **Opcode**: `7'b0010011` (`7'd19`)
-- **Format**: `imm[31:20] | rs1[19:15] | func3[14:12] | rd[11:7] | opcode[6:0]`
-- **Immediate**: Sign-extended 12-bit immediate: `{{20{instr[31]}}, instr[31:20]}`
+#### 2. I-Type ALU (Immediate Operations)
+*Opcode `7'b0010011` (`0x13`)*
 
-| Mnemonic | func3 | func7 | Operation | Description |
+| Instruction | func3 | func7 | Operation | Description |
 | :--- | :---: | :---: | :--- | :--- |
 | **ADDI** | `000` | — | `rd = rs1 + imm` | Add Immediate |
 | **SLLI** | `001` | `0000000` | `rd = rs1 << imm[4:0]` | Shift Left Logical Immediate |
-| **SLTI** | `010` | — | `rd = ($signed(rs1) < $signed(imm)) ? 1 : 0` | Set Less Than Immediate (Signed) |
-| **SLTIU** | `011` | — | `rd = (rs1 < imm) ? 1 : 0` | Set Less Than Immediate Unsigned |
+| **SLTI** | `010` | — | `rd = ($signed(rs1) < $signed(imm)) ? 1 : 0` | Set Less Than Immediate |
+| **SLTIU** | `011` | — | `rd = (rs1 < imm) ? 1 : 0` | Set Less Than Unsigned Immediate |
 | **XORI** | `100` | — | `rd = rs1 ^ imm` | Bitwise XOR Immediate |
 | **SRLI** | `101` | `0000000` | `rd = rs1 >> imm[4:0]` | Shift Right Logical Immediate |
 | **SRAI** | `101` | `0100000` | `rd = $signed(rs1) >>> imm[4:0]` | Shift Right Arithmetic Immediate |
 | **ORI** | `110` | — | `rd = rs1 \| imm` | Bitwise OR Immediate |
 | **ANDI** | `111` | — | `rd = rs1 & imm` | Bitwise AND Immediate |
 
-### 3. Load & Store Instructions
-- **LW (Load Word)**: Opcode `7'b0000011` (`7'd3`), `func3 = 3'b010`. Address = `rs1 + imm`. Loads 32-bit little-endian word from `dataMemory` to `rd`.
-- **SW (Store Word)**: Opcode `7'b0100011` (`7'd35`), `func3 = 3'b010`. Address = `rs1 + imm`. Stores 32-bit little-endian word from `rs2` into `dataMemory`.
+#### 3. Loads & Stores
+- **LW (Load Word)**: Opcode `7'b0000011` (`0x03`), `func3 = 010`. `rd = memory[rs1 + imm]`.
+- **SW (Store Word)**: Opcode `7'b0100011` (`0x23`), `func3 = 010`. `memory[rs1 + imm] = rs2`.
 
-### 4. Branch Instructions (B-Type)
-- **Opcode**: `7'b1100011` (`7'd99`)
-- **Immediate**: Reconstructed B-immediate with bit 0 set to 0. Target = `PC + imm`.
+#### 4. Branches (B-Type)
+*Opcode `7'b1100011` (`0x63`). Target = `PC + imm`*
 
-| Mnemonic | func3 | Condition Evaluated in `bAlu` |
+| Instruction | func3 | Condition Evaluated in `bAlu` |
 | :--- | :---: | :--- |
-| **BEQ** | `000` | `$signed(rs1) == $signed(rs2)` |
-| **BNE** | `001` | `$signed(rs1) != $signed(rs2)` |
-| **BLT** | `100` | `$signed(rs1) < $signed(rs2)` (Signed) |
-| **BGE** | `101` | `$signed(rs1) >= $signed(rs2)` (Signed) |
+| **BEQ** | `000` | `rs1 == rs2` |
+| **BNE** | `001` | `rs1 != rs2` |
+| **BLT** | `100` | `$signed(rs1) < $signed(rs2)` |
+| **BGE** | `101` | `$signed(rs1) >= $signed(rs2)` |
 | **BLTU** | `110` | `rs1 < rs2` (Unsigned) |
 | **BGEU** | `111` | `rs1 >= rs2` (Unsigned) |
 
-### 5. Upper Immediate Instructions (U-Type)
-- **LUI (Load Upper Immediate)**: Opcode `7'b0110111` (`7'd55`). Loads `imm[31:12] << 12` into `rd`.
-- **AUIPC (Add Upper Immediate to PC)**: Opcode `7'b0010111` (`7'd23`). `rd = PC + (imm[31:12] << 12)`.
+#### 5. Upper Immediates & Jumps
+- **LUI (Load Upper Immediate)**: Opcode `7'b0110111` (`0x37`). `rd = imm << 12`.
+- **AUIPC (Add Upper Immediate to PC)**: Opcode `7'b0010111` (`0x17`). `rd = PC + (imm << 12)`.
+- **JAL (Jump and Link)**: Opcode `7'b1101111` (`0x6F`). `rd = PC + 4`, `PC = PC + imm`.
+- **JALR (Jump and Link Register)**: Opcode `7'b1100111` (`0x67`). `rd = PC + 4`, `PC = (rs1 + imm) & ~1`.
 
-### 6. Unconditional Jumps
-- **JAL (Jump and Link)**: Opcode `7'b1101111` (`7'd111`). Target = `PC + imm`. Link address `PC + 4` stored into `rd`.
-- **JALR (Jump and Link Register)**: Opcode `7'b1100111` (`7'd103`). Target = `(rs1 + imm) & ~32'd1`. Link address `PC + 4` stored into `rd`.
+### Control Logic Unit
 
----
+Decodes 7-bit opcodes into execution control signals in [`rtl/rv32i/ControlLogic.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/ControlLogic.v):
 
-## Control Logic Unit
+| Opcode | Class | `reg_write` | `mem_read` | `mem_write` | `alu_src` | `mem_to_reg` | `branch` | `jump` | `alu_op` |
+| :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `0x33` | R-Type | 1 | 0 | 0 | 0 | `2'b00` | 0 | 0 | `2'b10` |
+| `0x13` | I-Type ALU | 1 | 0 | 0 | 1 | `2'b00` | 0 | 0 | `2'b10` |
+| `0x03` | Load (LW) | 1 | 1 | 0 | 1 | `2'b01` | 0 | 0 | `2'b00` |
+| `0x23` | Store (SW) | 0 | 0 | 1 | 1 | `2'b00` | 0 | 0 | `2'b00` |
+| `0x63` | Branch | 0 | 0 | 0 | 0 | `2'b00` | 1 | 0 | `2'b01` |
+| `0x37` | LUI | 1 | 0 | 0 | 0 | `2'b11` | 0 | 0 | `2'b11` |
+| `0x17` | AUIPC | 1 | 0 | 0 | 1 | `2'b00` | 0 | 0 | `2'b00` |
+| `0x6F` | JAL | 1 | 0 | 0 | 0 | `2'b10` | 0 | 1 | `2'b00` |
+| `0x67` | JALR | 1 | 0 | 0 | 1 | `2'b10` | 0 | 1 | `2'b00` |
 
-The `ControlLogic` module decodes the 7-bit opcode combinational matrix into the core execution control lines:
+### Core Module Breakdown
 
-| Opcode (`opcode[6:0]`) | Instruction Class | `reg_write` | `mem_read` | `mem_write` | `alu_src` | `mem_to_reg` | `branch` | `jump` | `alu_op` |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `7'd51` (`0110011`) | R-Type ALU | `1` | `0` | `0` | `0` (rs2) | `2'b00` | `0` | `0` | `2'b10` |
-| `7'd19` (`0010011`) | I-Type ALU | `1` | `0` | `0` | `1` (imm) | `2'b00` | `0` | `0` | `2'b10` |
-| `7'd3` (`0000011`) | Load (LW) | `1` | `1` | `0` | `1` (imm) | `2'b01` | `0` | `0` | `2'b00` |
-| `7'd35` (`0100011`) | Store (SW) | `0` | `0` | `1` | `1` (imm) | `2'b00` | `0` | `0` | `2'b00` |
-| `7'd99` (`1100011`) | Branch (B-Type) | `0` | `0` | `0` | `0` (rs2) | `2'b00` | `1` | `0` | `2'b01` |
-| `7'd55` (`0110111`) | LUI | `1` | `0` | `0` | `0` | `2'b11` | `0` | `0` | `2'b11` |
-| `7'd23` (`0010111`) | AUIPC | `1` | `0` | `0` | `1` (imm) | `2'b00` | `0` | `0` | `2'b00` |
-| `7'd111` (`1101111`) | JAL | `1` | `0` | `0` | `0` | `2'b10` | `0` | `1` | `2'b00` |
-| `7'd103` (`1100111`) | JALR | `1` | `0` | `0` | `1` (imm) | `2'b10` | `0` | `1` | `2'b00` |
-
-### Write-Back Multiplexer Encoding
-The `mem_to_reg` bus selects the source committed to `rd` in the register file:
-- **`2'b01`**: Memory read output (`mem_data_out`) from `dataMemory` (used for `LW`).
-- **All other values (`2'b00`, `2'b10`, `2'b11`)**: `alu_out` from `alu.v`, which directly contains:
-  - Computed arithmetic/logic result for R-type and I-type (`mem_to_reg == 2'b00`)
-  - `PC + 4` return link address for `JAL` and `JALR` (`mem_to_reg == 2'b10`)
-  - Upper immediate value for `LUI` (`mem_to_reg == 2'b11`)
-  - `PC + imm` address for `AUIPC` (`mem_to_reg == 2'b00`)
-
----
-
-## Memory Organization
-
-The core employs separate byte-addressable memories for instructions and data:
-
-### Endianness & Byte Swizzling
-Both `instructionMemory` and `dataMemory` store bytes in standard **RISC-V Little-Endian** format:
-- **Byte 0**: bits `[7:0]` (LSB) at address `A + 0`
-- **Byte 1**: bits `[15:8]` at address `A + 1`
-- **Byte 2**: bits `[23:16]` at address `A + 2`
-- **Byte 3**: bits `[31:24]` (MSB) at address `A + 3`
-
-When reading a 32-bit word, the modules concatenate:
-```verilog
-data_out <= {memory[address + 3], memory[address + 2], memory[address + 1], memory[address]};
-```
-
-### Program Initialization
-`instructionMemory.v` automatically loads hex instruction words from `instructions.hex` on simulation start:
-```verilog
-reg [31:0] temp_mem [0:63];
-initial begin
-    $readmemh("instructions.hex", temp_mem);
-    for (k = 0; k < 64; k = k + 1) begin
-        memory[4*k + 0] = temp_mem[k][7:0];
-        memory[4*k + 1] = temp_mem[k][15:8];
-        memory[4*k + 2] = temp_mem[k][23:16];
-        memory[4*k + 3] = temp_mem[k][31:24];
-    end
-end
-```
+| Source File | Module Name | Description |
+| :--- | :--- | :--- |
+| [`Datapath.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/Datapath.v) | `Datapath` | Top-level processor core datapath connecting all submodules. |
+| [`ProgramCounter.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/ProgramCounter.v) | `ProgramCounter` | PC register with sequential (`PC+4`), branch, and jump target generation, supporting pipeline stall. |
+| [`instructionMemory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/instructionMemory.v) | `instructionMemory` | 1 KB word-addressed ROM (256 instructions) loaded via `$readmemh("instructions.hex", memory)`. |
+| [`decoder.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/decoder.v) | `decoder` | Extracts fields and signs-extends 32-bit immediates for I, S, B, U, and J formats. |
+| [`ControlLogic.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/ControlLogic.v) | `ControlLogic` | Combinational instruction decoder producing datapath control lines. |
+| [`RegFile.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/RegFile.v) | `RegFile` | 32 x 32-bit general-purpose registers (`x0` through `x31`). Dual asynchronous read, synchronous write. |
+| [`alu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/alu.v) | `alu` | Top ALU wrapper combining arithmetic/logic (`RI_alu`) and branching (`bAlu`), AUIPC, LUI, and return link addresses. |
+| [`RI_alu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/RI_alu.v) | `RI_alu` | Execution unit for integer R-type and I-type arithmetic and logic. |
+| [`bAlu.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/bAlu.v) | `bAlu` | Branch condition comparator evaluating signed and unsigned relations. |
+| [`dataMemory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/dataMemory.v) | `dataMemory` | Standalone byte-addressable local RAM model. |
+| [`immTo32.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/immTo32.v) | `immTo32` | 12-bit to 32-bit sign extension utility. |
+| [`sram.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/rv32i/sram.v) | `sram` | Synchronous static memory block template. |
 
 ---
 
-## System Integration (RV32I + AXI + VGA)
+## On-Chip Interconnect & AXI4-Lite Bridge
 
-The RV32I core exposes direct memory bus monitoring ports on its top-level module:
-```verilog
-module Datapath (
-    input             clk,
-    input             reset,
-    output     [31:0] pcRegister,
-    output     [31:0] mem_addr,
-    output     [31:0] mem_wdata,
-    output            mem_write,
-    output            mem_read
-);
-```
+All memory transactions between the CPU and memory/peripherals are routed over standard AXI4-Lite channels inside [`rtl/bus/`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus).
 
-### Interconnect Architecture
-These memory interface signals are mapped into the AXI crossbar decoder (`rtl/bus/axi_decoder.v`) to facilitate communication with peripheral subsystems:
+### RV32I to AXI4-Lite Bridge
 
-1. **Local Data RAM**: Addresses `0x0000_0000 - 0x0000_00FF` (Core internal).
-2. **VGA Control Registers**: Base address `0x4000_0000` (`rtl/vga/vga_registers.v`).
-   - Framebuffer base pointers, resolution settings, color mode, status registers.
-3. **VGA Framebuffer Memory**: Base address `0x5000_0000` (`rtl/vga/framebuffer_sram.v` via `axi_framebuffer.v`).
-   - Dual-port video SRAM allowing the CPU to draw pixels while the VGA timing controller (`vga_timing.v` & `pixel_addr_gen.v`) continuously streams pixels to DAC pins (`rgb_output.v`).
+[`rtl/bus/rv32i_axi_bridge.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus/rv32i_axi_bridge.v) interfaces the native CPU memory bus to AXI4-Lite:
+- **Write Channel**: Drives `awaddr`, `wdata`, `wstrb = 4'b1111`, and manages the `bresp`/`bvalid` write response handshake.
+- **Read Channel**: Drives `araddr`, samples `rdata` on `rvalid`, and forwards incoming read data directly to `cpu_mem_rdata`.
+- **CPU Stall Generation**: Asserts `cpu_stall = 1` while memory transactions are in flight, releasing the CPU on the exact cycle of transfer completion (`bvalid` or `rvalid`).
+
+### AXI Crossbar Decoder
+
+[`rtl/bus/axi_decoder.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus/axi_decoder.v) acts as an address decoding switch:
+- Routes addresses matching `0x0000_0000 - 0x0000_00FF` to **Slave 0** (Data RAM).
+- Routes addresses matching `0x1000_0000 - 0x1000_001F` (MMIO) and `0x5000_0000 - 0x5001_2BFF` (Framebuffer) to **Slave 1** (VGA Subsystem).
+- Automatically responds with `AXI_RESP_DECERR` (`2'b11`) for unmapped address accesses.
+
+### AXI Data Memory
+
+[`rtl/bus/axi_data_memory.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/bus/axi_data_memory.v) implements a synchronous 256-byte AXI4-Lite slave RAM with byte-strobe write masking (`wstrb`).
 
 ---
 
-## Simulation & Verification
+## VGA Graphics Controller Subsystem
 
-### 1. Generating `instructions.hex`
-To execute software on the core, assemble your RISC-V program into 32-bit hexadecimal words:
+The graphics hardware resides in [`rtl/vga/`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/vga) and generates a flicker-free visual display driven directly by CPU framebuffer writes.
 
-```assembly
-# example.s
-_start:
-    addi x1, x0, 10       # x1 = 10
-    addi x2, x0, 20       # x2 = 20
-    add  x3, x1, x2       # x3 = 30
-    sw   x3, 0(x0)        # memory[0] = 30
-    lw   x4, 0(x0)        # x4 = memory[0]
-loop:
-    beq  x3, x4, loop     # infinite loop
+```
++-------------------------------------------------------------------------------+
+|                             VGA Subsystem Architecture                        |
+|                                                                               |
+|   AXI4-Lite Bus                                                               |
+|        |                                                                      |
+|        v                                                                      |
+|  +--------------------+   Arbitration    +----------------------+             |
+|  |   vga_registers    |----------------->|   framebuffer_sram   |             |
+|  | (MMIO & CPU Port)  |   (CPU vs VGA)   | (160x120 x 32-bit)   |             |
+|  +--------------------+                  +----------------------+             |
+|        |                                            |                         |
+|   btn / sw inputs                                   v (32-bit pixel data)     |
+|        |                                 +----------------------+             |
+|        |         +---------------------->|    vga_controller    |             |
+|        |         |  fb_req, fb_addr      +----------------------+             |
+|        v         |                                  |                         |
+|  +----------------------+                           v                         |
+|  |    pixel_addr_gen    |                  +------------------+               |
+|  | (4x Pixel Scaling)   |                  |    rgb_output    | (1-cycle delay|
+|  +----------------------+                  +------------------+  alignment)   |
+|        ^                                            |                         |
+|        | H_count, V_count                           v                         |
+|  +----------------------+                  VGA Output (Pmod JC)               |
+|  |      vga_timing      |                  - RGB111 (R, G, B)                 |
+|  | (640x480 @ 60Hz Sync)|                  - HSync, VSync                     |
+|  +----------------------+                                                     |
++-------------------------------------------------------------------------------+
 ```
 
-Assemble using the GNU RISC-V Toolchain:
+### Resolution & 4x Hardware Pixel Scaling
+
+- **Internal Resolution**: 160 x 120 pixels.
+- **Physical Output Resolution**: Standard 640 x 480 @ 60 Hz VGA timing.
+- **Hardware Scaling**: [`pixel_addr_gen.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/vga/pixel_addr_gen.v) performs 4x horizontal and 4x vertical pixel replication (`H_count >> 2`, `V_count >> 2`). Every pixel written by the CPU to the 160x120 buffer is automatically rendered on display as a sharp 4x4 physical pixel block.
+
+### Framebuffer Architecture & BRAM Footprint
+
+- **Storage Format**: 32-bit word per pixel (`0x00RRGGBB`).
+- **Memory Depth**: 160 * 120 = 19,200 words = 76,800 bytes.
+- **BRAM Consumption**: Consumes only **17 Block RAMs (36Kb each)** on the Xilinx XC7Z010 FPGA (out of 60 available), leaving over **71% of on-chip RAM free** for CPU logic and other modules.
+- **Access Arbitration**: [`vga_registers.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/vga/vga_registers.v) arbitrates SRAM port access between CPU memory writes and real-time raster scanning.
+- **Synchronous Pipeline Alignment**: HSync, VSync, and pixel data are passed through a 1-cycle delay pipeline (`vga_controller.v` and `rgb_output.v`) to align with synchronous Block RAM read latency.
+
+### Pmod RGB111 Physical Interface
+
+To eliminate external hardware complexity, the video output is mapped to a single Digilent Pmod port (**JC**) in 1-bit per channel RGB111 color mode:
+- **Colors Supported**: 8 saturated colors (Black, Blue, Green, Cyan, Red, Magenta, Yellow, White).
+- **Physical Pins**:
+  - `vga_r`: JC1 (Pin V15)
+  - `vga_g`: JC2 (Pin W15)
+  - `vga_b`: JC3 (Pin T11)
+  - `vga_hs`: JC7 (Pin W14)
+  - `vga_vs`: JC8 (Pin Y14)
+
+---
+
+## FPGA Implementation (Digilent Zybo Z7-10)
+
+The SoC top wrapper is implemented in [`rtl/fpga/zybo_top.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/rtl/fpga/zybo_top.v) and constrained in [`constraints/zybo_z7_10.xdc`](file:///c:/Users/HSG/Desktop/rv32i-vga/constraints/zybo_z7_10.xdc).
+
+### Clock & Reset Architecture
+
+1. **Clock Generation**: The onboard 125.0 MHz oscillator (Pin K17) is divided by 5 via a counter with 50% duty cycle to produce a **25.0 MHz system clock** (`clk_25m`).
+   - Standard 640x480 @ 60 Hz VGA requires 25.175 MHz; the 25.0 MHz clock is within standard monitor tolerance (< 0.7% drift).
+   - The entire SoC (CPU, AXI crossbar, Framebuffer, and VGA rasterizer) runs synchronously on this 25.0 MHz domain.
+2. **Reset Synchronizer**: Switch `sw[0]` is routed through a 3-stage shift-register synchronizer clocked at 25 MHz to eliminate metastability.
+
+### Diagnostic LEDs & Peripheral Pinout
+
+| Pin Type | Board Component | FPGA Pin | Direction | Function |
+| :--- | :--- | :---: | :---: | :--- |
+| **Clock** | 125 MHz Oscillator | `K17` | Input | System master clock input. |
+| **Switch** | SW0 | `G15` | Input | **Hardware Reset** (`1` = In reset, `0` = Run). |
+| **Switch** | SW1 | `P15` | Input | **AI Assist Toggle** (`0` = AI controls Right paddle, `1` = 2-Player Manual). |
+| **Button** | BTN0 | `K18` | Input | **Left Paddle UP**. |
+| **Button** | BTN1 | `P16` | Input | **Left Paddle DOWN**. |
+| **Button** | BTN2 | `K19` | Input | **Right Paddle UP** (Manual Mode). |
+| **Button** | BTN3 | `Y16` | Input | **Right Paddle DOWN** (Manual Mode). |
+| **LED** | LED0 | `M14` | Output | **Display Active**: Solid ON when CPU enables display via MMIO. |
+| **LED** | LED1 | `M15` | Output | **CPU Stall**: Indicates memory wait states. |
+| **LED** | LED2 | `G14` | Output | **Memory Write**: Latches ON after first CPU memory write. |
+| **LED** | LED3 | `D18` | Output | **System Heartbeat**: Blinks continuously at ~1.5 Hz. |
+| **VGA Red** | Pmod JC Pin 1 | `V15` | Output | Red channel 1-bit digital output. |
+| **VGA Green** | Pmod JC Pin 2 | `W15` | Output | Green channel 1-bit digital output. |
+| **VGA Blue** | Pmod JC Pin 3 | `T11` | Output | Blue channel 1-bit digital output. |
+| **VGA HSync** | Pmod JC Pin 7 | `W14` | Output | Horizontal Synchronization Pulse. |
+| **VGA VSync** | Pmod JC Pin 8 | `Y14` | Output | Vertical Synchronization Pulse. |
+
+---
+
+## Bare-Metal Application: Ping Pong Game
+
+The system includes a bare-metal assembly implementation of the classic Ping Pong arcade game in [`pong.s`](file:///c:/Users/HSG/Desktop/rv32i-vga/pong.s):
+
+### Game Mechanics & Features
+
+- **Initialization**: Enables the display by writing `1` to `0x1000_0000`, sets the framebuffer base pointer (`0x5000_0000`), and initializes object coordinates.
+- **Physics Engine**: Updates ball position using velocity vectors (`vel_x`, `vel_y`), handles top/bottom screen boundary bounces, and evaluates paddle collision bounding boxes.
+- **Scoring & Reset**: If the ball crosses a paddle goal line, it automatically resets to screen center and reverses trajectory toward the scoring player.
+- **AI Opponent**: When `sw[1] == 0`, the Right paddle autonomously tracks the vertical Y position of the incoming ball. Setting `sw[1] == 1` switches control to BTN2 and BTN3 for 2-player mode.
+- **Speed Regulation**: A calibrated assembly delay loop (`delay_loop`) controls animation pacing.
+
+### Flicker-Free Rendering Engine
+
+Rather than clearing the entire 19,200-word framebuffer each frame (which would cause severe screen flickering and CPU bottleneck), the game maintains **shadow variables**:
+1. Previous frame coordinates (`x14`: prev_ball_x, `x15`: prev_ball_y, `x16`: prev_lpad_y, `x17`: prev_rpad_y).
+2. Before drawing the new frame, the software overwrites *only* the bounding boxes of the old ball (2x2) and old paddles (2x16) with black (`0x00000000`).
+3. It then renders the new positions in white (`0x00FFFFFF`).
+
+### Assembling & Updating Software
+
+To compile and update [`pong.s`](file:///c:/Users/HSG/Desktop/rv32i-vga/pong.s) into [`instructions.hex`](file:///c:/Users/HSG/Desktop/rv32i-vga/instructions.hex):
+
 ```bash
-riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 example.s -o example.o
-riscv64-unknown-elf-objcopy -O binary example.o example.bin
-hexdump -v -e '1/4 "%08x\n"' example.bin > instructions.hex
-```
+# 1. Assemble to object file
+riscv64-unknown-elf-as -march=rv32i -mabi=ilp32 pong.s -o pong.o
 
-Place `instructions.hex` in the simulation working directory.
+# 2. Extract raw binary instructions
+riscv64-unknown-elf-objcopy -O binary pong.o pong.bin
 
-### 2. Creating a Testbench
-A basic Verilog testbench instantiating `Datapath`:
-
-```verilog
-`timescale 1ns / 1ps
-
-module tb_rv32i;
-    reg clk;
-    reg reset;
-    wire [31:0] pc;
-    wire [31:0] mem_addr;
-    wire [31:0] mem_wdata;
-    wire        mem_write;
-    wire        mem_read;
-
-    Datapath uut (
-        .clk(clk),
-        .reset(reset),
-        .pcRegister(pc),
-        .mem_addr(mem_addr),
-        .mem_wdata(mem_wdata),
-        .mem_write(mem_write),
-        .mem_read(mem_read)
-    );
-
-    always #5 clk = ~clk;
-
-    initial begin
-        clk = 0;
-        reset = 1;
-        #20 reset = 0;
-
-        #500;
-        $finish;
-    end
-endmodule
-```
-
-### 3. Simulating with Icarus Verilog
-Compile and run with `iverilog`:
-```bash
-iverilog -o sim_rv32i \
-    rv32i/Datapath.v \
-    rv32i/ProgramCounter.v \
-    rv32i/instructionMemory.v \
-    rv32i/decoder.v \
-    rv32i/ControlLogic.v \
-    rv32i/RegFile.v \
-    rv32i/alu.v \
-    rv32i/RI_alu.v \
-    rv32i/bAlu.v \
-    rv32i/dataMemory.v \
-    tb_rv32i.v
-
-vvp sim_rv32i
+# 3. Format into 32-bit hexadecimal words
+hexdump -v -e '1/4 "%08x\n"' pong.bin > instructions.hex
 ```
 
 ---
 
-## File Structure
+## Build System & Toolchain Guide
+
+The project includes an automated build system in [`Makefile`](file:///c:/Users/HSG/Desktop/rv32i-vga/Makefile) using the open-source **F4PGA / SymbiFlow** toolchain for Xilinx 7-series devices.
+
+### Makefile Targets
+
+```bash
+make help        # Displays available commands and target summaries
+make bitstream   # Executes complete synthesis, pack, place, route, and bitstream flow
+make prog        # Programs the bitstream onto the Zybo Z7-10 via openFPGALoader
+make sim         # Compiles and runs the end-to-end SoC testbench in QuestaSim
+make clean       # Removes all build directories, logs, and simulation outputs
+```
+
+### Synthesizing & Generating Bitstream (F4PGA)
+
+Run:
+```bash
+make bitstream
+```
+
+This target executes the 6-stage open-source flow:
+1. **Synthesis (`symbiflow_synth`)**: Synthesizes Verilog RTL using Yosys and produces `build/zybo/zybo_top.eblif`.
+2. **Packing (`symbiflow_pack`)**: Packs primitives into CLBs using VPR and produces `build/zybo/zybo_top.net`.
+3. **Placement (`symbiflow_place`)**: Places blocks on the XC7Z010 grid -> `build/zybo/zybo_top.place`.
+4. **Routing (`symbiflow_route`)**: Routes interconnect lines -> `build/zybo/zybo_top.route`.
+5. **FASM Generation (`symbiflow_write_fasm`)**: Generates FPGA Assembly configuration file -> `build/zybo/zybo_top.fasm`.
+6. **Bitstream Assembly (`symbiflow_write_bitstream`)**: Packages bitstream via prjxray -> `build/zybo/zybo_top.bit`.
+
+### Board Programming (openFPGALoader)
+
+Connect your Zybo Z7-10 via Micro-USB (JTAG) and run:
+```bash
+make prog
+```
+
+Or run directly:
+```bash
+openFPGALoader -b zybo_z7_10 build/zybo/zybo_top.bit
+```
+
+---
+
+## Verification & Simulation
+
+### Testbench Suite
+
+The [`tb/`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb) directory provides modular and full-chip verification suites:
+
+- [`tb/soc_top_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/soc_top_tb.sv): Full SoC end-to-end testbench simulating CPU instruction execution, AXI bridge handshakes, MMIO video activation, and continuous pixel streaming.
+- [`tb/axi_decoder_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/axi_decoder_tb.sv): Comprehensive testbench for AXI4-Lite crossbar routing and address decoding.
+- [`tb/rv32i_dmem_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/rv32i_dmem_tb.sv): Verifies CPU memory read/write instructions over the AXI master bridge.
+- [`tb/vga_subsystem_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_subsystem_tb.sv): Full graphics subsystem verification covering framebuffer arbitration and timing.
+- [`tb/vga_registers_tb.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_registers_tb.v): Tests MMIO register read/write operations and busy flags.
+- [`tb/vga_tb.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_tb.v): Timing verification for VGA sync pulses and active video intervals.
+
+### Running SoC Simulation
+
+#### QuestaSim / ModelSim
+```bash
+make sim
+```
+
+#### Icarus Verilog
+```bash
+iverilog -g2012 -o sim_soc \
+    rtl/rv32i/*.v \
+    rtl/bus/*.v \
+    rtl/vga/*.v \
+    rtl/soc_top.v \
+    tb/soc_top_tb.sv
+
+vvp sim_soc
+gtkwave soc_top.vcd
+```
+
+---
+
+## Repository File Structure
 
 ```
 rv32i-vga/
-├── README.md                  # Project & Core Documentation
-├── rv32i/                     # Active Single-Cycle RV32I Processor Core
-│   ├── ControlLogic.v         # Main Control Unit (Opcode Decoder)
-│   ├── Datapath.v             # Core Top-Level Datapath & Interconnect
-│   ├── ProgramCounter.v       # PC Generator (Sequential, Branch, Jump)
-│   ├── RegFile.v              # 32x32 General Purpose Register File
-│   ├── RI_alu.v               # Register-Immediate & Register-Register ALU
-│   ├── alu.v                  # Top ALU & Address/Link Multiplexer
-│   ├── bAlu.v                 # Branch Comparison Unit
-│   ├── dataMemory.v           # 256-Byte Byte-Addressable RAM
-│   ├── decoder.v              # Combinational Decoder & Immediate Generator
-│   └── instructionMemory.v    # 256-Byte Byte-Addressable ROM (loads instructions.hex)
+├── Makefile                       # F4PGA build, flashing & simulation automation
+├── README.md                      # Complete system documentation
+├── instructions.hex               # Preloaded 32-bit machine code for instructionMemory
+├── pong.s                         # Bare-metal RISC-V Ping Pong game assembly source
+│
+├── constraints/
+│   └── zybo_z7_10.xdc             # Pin constraints for Digilent Zybo Z7-10
+│
 ├── rtl/
-│   ├── bus/
-│   │   └── axi_decoder.v      # AXI-4 / AXI-Lite Crossbar Interconnect
-│   ├── rv32i/                 # Modular RV32I Development RTL
-│   └── vga/                   # Complete Hardware VGA Subsystem
-│       ├── axi_framebuffer.v  # AXI Interface to Video Buffer
-│       ├── framebuffer_sram.v # Dual-Port Video Memory
-│       ├── pixel_addr_gen.v   # Raster Address Generator
-│       ├── rgb_output.v       # DAC / Color Output Formatter
-│       ├── vga_controller.v   # Subsystem Top-Level Controller
-│       ├── vga_registers.v    # Memory-Mapped Video Config Registers
-│       └── vga_timing.v       # HSync, VSync & Active Video Generator
-└── tb/                        # Testbenches
-    ├── axi_decoder_tb.sv      # AXI Bus Interconnect Verification
-    ├── vga_registers_tb.v     # VGA Register Interface Verification
-    ├── vga_subsystem_tb.sv    # Full VGA Subsystem Testbench
-    └── vga_tb.v               # VGA Controller Timing Testbench
+│   ├── soc_top.v                  # Top-level SoC interconnecting CPU, Bus & VGA
+│   │
+│   ├── bus/                       # AXI4-Lite Bus Infrastructure
+│   │   ├── axi_data_memory.v      # AXI4-Lite 256-byte synchronous RAM (Slave 0)
+│   │   ├── axi_decoder.v          # AXI4-Lite Crossbar Address Decoder
+│   │   └── rv32i_axi_bridge.v     # CPU Native Memory to AXI4-Lite Master Bridge
+│   │
+│   ├── fpga/                      # Board-Level Hardware Integration
+│   │   └── zybo_top.v             # Zybo Z7-10 wrapper (clock divider, reset, I/O)
+│   │
+│   ├── rv32i/                     # RV32I Processor Core Modules
+│   │   ├── ControlLogic.v         # Opcode Decoder & Main Control Unit
+│   │   ├── Datapath.v             # CPU Top Datapath with bus stall support
+│   │   ├── ProgramCounter.v       # PC register, branch & jump target logic
+│   │   ├── README.md              # RV32I core-specific documentation
+│   │   ├── RI_alu.v               # Integer R-type & I-type arithmetic and logic
+│   │   ├── RegFile.v              # 32x32-bit General Purpose Register File
+│   │   ├── alu.v                  # Top ALU wrapper & address multiplexer
+│   │   ├── bAlu.v                 # Branch condition comparator
+│   │   ├── dataMemory.v           # Local RAM model
+│   │   ├── decoder.v              # Instruction field decoder & immediate generator
+│   │   ├── immTo32.v              # 12-bit to 32-bit sign extender
+│   │   ├── instructionMemory.v    # 1 KB (256-word) ROM preloaded with instructions.hex
+│   │   └── sram.v                 # Synchronous memory module template
+│   │
+│   └── vga/                       # Hardware VGA Display Subsystem
+│       ├── axi_framebuffer.v      # Framebuffer AXI adapter
+│       ├── framebuffer_sram.v     # 160x120 dual-port video Block RAM
+│       ├── pixel_addr_gen.v       # 4x hardware pixel address generator
+│       ├── rgb_output.v           # Pipeline-aligned RGB output driver
+│       ├── vga_controller.v       # Top VGA subsystem controller
+│       ├── vga_registers.v        # MMIO registers & SRAM memory arbiter
+│       └── vga_timing.v           # Standard 640x480 @ 60 Hz HSync/VSync generator
+│
+└── tb/                            # Verification & Simulation Testbenches
+    ├── axi_decoder_tb.sv          # Crossbar address decoding testbench
+    ├── rv32i_dmem_tb.sv           # CPU-to-Data-Memory AXI bridge testbench
+    ├── soc_top_tb.sv              # End-to-end SoC SystemVerilog testbench
+    ├── vga_registers_tb.v         # VGA MMIO register interface testbench
+    ├── vga_subsystem_tb.sv        # VGA subsystem integration testbench
+    └── vga_tb.v                   # VGA raster timing compliance testbench
 ```
 
 ---
 
-## Authors & License
+## License
 
-Developed as part of the **RV32I-VGA SoC Project**.
-Licensed under the MIT License.
+This project is licensed under the **MIT License**.
