@@ -1,14 +1,16 @@
 `timescale 1ns / 1ps
 
 module vga_registers #(
-    parameter int AXI_ADDR_WIDTH       = 32,
-    parameter int AXI_DATA_WIDTH       = 32,
-    parameter int FB_WIDTH_DEFAULT     = 640,
-    parameter int FB_HEIGHT_DEFAULT    = 480,
-    parameter logic [AXI_ADDR_WIDTH-1:0] FB_BASE_DEFAULT = 32'h5000_0000
+    parameter AXI_ADDR_WIDTH       = 32,
+    parameter AXI_DATA_WIDTH       = 32,
+    parameter FB_WIDTH_DEFAULT     = 640,
+    parameter FB_HEIGHT_DEFAULT    = 480,
+    parameter [AXI_ADDR_WIDTH-1:0] FB_BASE_DEFAULT = 32'h5000_0000
 )(
     input  wire                          clk,
     input  wire                          rst,        // Active-high reset
+    input  wire [3:0]                    btn,        // Pushbuttons (btn[0..3])
+    input  wire [3:0]                    sw,         // Slide switches (sw[0..3])
 
     // =========================================================================
     // AXI4-Lite Slave Interface (CPU Side)
@@ -61,16 +63,17 @@ module vga_registers #(
     // -------------------------------------------------------------------------
     // Constants & Register Offsets
     // -------------------------------------------------------------------------
-    localparam logic [1:0] AXI_RESP_OKAY   = 2'b00;
-    localparam logic [1:0] AXI_RESP_SLVERR = 2'b10;
+    localparam [1:0] AXI_RESP_OKAY   = 2'b00;
+    localparam [1:0] AXI_RESP_SLVERR = 2'b10;
 
-    localparam logic [31:0] ADDR_VGA_CTRL   = 32'h1000_0000;
-    localparam logic [31:0] ADDR_VGA_STATUS = 32'h1000_0004;
-    localparam logic [31:0] ADDR_FB_BASE    = 32'h1000_0008;
-    localparam logic [31:0] ADDR_FB_SIZE    = 32'h1000_000C;
+    localparam [31:0] ADDR_VGA_CTRL   = 32'h1000_0000;
+    localparam [31:0] ADDR_VGA_STATUS = 32'h1000_0004;
+    localparam [31:0] ADDR_FB_BASE    = 32'h1000_0008;
+    localparam [31:0] ADDR_FB_SIZE    = 32'h1000_000C;
+    localparam [31:0] ADDR_INPUTS     = 32'h1000_0010; // Read-Only: [3:0]=btn, [7:4]=sw
 
-    localparam int FB_MAX_WORDS = FB_WIDTH_DEFAULT * FB_HEIGHT_DEFAULT; // 307,200 words
-    localparam int FB_MAX_BYTES = FB_MAX_WORDS * 4;                     // 1,228,800 bytes
+    localparam FB_MAX_WORDS = FB_WIDTH_DEFAULT * FB_HEIGHT_DEFAULT; // 307,200 words
+    localparam FB_MAX_BYTES = FB_MAX_WORDS * 4;                     // 1,228,800 bytes
 
     // -------------------------------------------------------------------------
     // 1. Memory-Mapped VGA Registers
@@ -82,9 +85,9 @@ module vga_registers #(
 
     assign display_enable = reg_vga_ctrl[0];
 
-    // Status: bit 0 = video_on, bit 1 = fb_busy (VGA currently accessing single port)
+    // Status: bit 0 = video_on, bit 1 = fb_busy, [5:2] = btn, [9:6] = sw
     wire fb_busy = vga_fb_req;
-    wire [31:0] reg_vga_status = {30'd0, fb_busy, vga_video_on};
+    wire [31:0] reg_vga_status = {22'd0, sw, btn, fb_busy, vga_video_on};
 
     // -------------------------------------------------------------------------
     // 2. AXI Write State Machine & Latched Buffers
@@ -95,42 +98,45 @@ module vga_registers #(
     reg                          aw_latched;
     reg                          w_latched;
 
-    typedef enum logic [1:0] {
-        W_IDLE   = 2'b00,
-        W_FB_REQ = 2'b01,
-        W_RESP   = 2'b10
-    } wr_state_t;
+    localparam [1:0] W_IDLE   = 2'b00;
+    localparam [1:0] W_FB_REQ = 2'b01;
+    localparam [1:0] W_RESP   = 2'b10;
 
-    wr_state_t wr_state;
+    reg [1:0] wr_state;
 
     // -------------------------------------------------------------------------
     // 3. AXI Read State Machine & Latched Buffers
     // -------------------------------------------------------------------------
     reg [AXI_ADDR_WIDTH-1:0] araddr_buf;
 
-    typedef enum logic [1:0] {
-        R_IDLE   = 2'b00,
-        R_FB_REQ = 2'b01,
-        R_FB_WAIT= 2'b10,
-        R_RESP   = 2'b11
-    } rd_state_t;
+    localparam [1:0] R_IDLE   = 2'b00;
+    localparam [1:0] R_FB_REQ = 2'b01;
+    localparam [1:0] R_FB_WAIT= 2'b10;
+    localparam [1:0] R_RESP   = 2'b11;
 
-    rd_state_t rd_state;
+    reg [1:0] rd_state;
 
     // -------------------------------------------------------------------------
     // 4. Address Decoding Helper Functions
     // -------------------------------------------------------------------------
-    function automatic logic is_reg_addr(input [31:0] addr);
-        return (addr == ADDR_VGA_CTRL   ||
-                addr == ADDR_VGA_STATUS ||
-                addr == ADDR_FB_BASE    ||
-                addr == ADDR_FB_SIZE);
+    function is_reg_addr;
+        input [31:0] addr;
+        begin
+            is_reg_addr = (addr == ADDR_VGA_CTRL   ||
+                           addr == ADDR_VGA_STATUS ||
+                           addr == ADDR_FB_BASE    ||
+                           addr == ADDR_FB_SIZE    ||
+                           addr == ADDR_INPUTS);
+        end
     endfunction
 
-    function automatic logic is_fb_addr(input [31:0] addr);
-        return ((addr >= FB_BASE_DEFAULT) &&
-                ((addr - FB_BASE_DEFAULT) < FB_MAX_BYTES) &&
-                (addr[1:0] == 2'b00));
+    function is_fb_addr;
+        input [31:0] addr;
+        begin
+            is_fb_addr = ((addr >= FB_BASE_DEFAULT) &&
+                          ((addr - FB_BASE_DEFAULT) < FB_MAX_BYTES) &&
+                          (addr[1:0] == 2'b00));
+        end
     endfunction
 
     // Effective write signals to prevent stale buffer access
@@ -150,7 +156,7 @@ module vga_registers #(
     wire grant_cpu_wr   = !grant_vga && !grant_cpu_rd && (wr_state == W_FB_REQ);
 
     // Single-Port SRAM Control Multiplexing (Fixed Base Address 32'h5000_0000)
-    always_comb begin
+    always @(*) begin
         if (grant_vga) begin
             fb_en    = 1'b1;
             fb_we    = 4'b0000;
@@ -177,7 +183,7 @@ module vga_registers #(
     // -------------------------------------------------------------------------
     // 6. AXI Write Channel FSM
     // -------------------------------------------------------------------------
-    always_ff @(posedge clk or posedge rst) begin
+    always @(posedge clk or posedge rst) begin
         if (rst) begin
             s_axi_awready <= 1'b1;
             s_axi_wready  <= 1'b1;
@@ -185,9 +191,9 @@ module vga_registers #(
             s_axi_bresp   <= AXI_RESP_OKAY;
             aw_latched    <= 1'b0;
             w_latched     <= 1'b0;
-            awaddr_buf    <= '0;
-            wdata_buf     <= '0;
-            wstrb_buf     <= '0;
+            awaddr_buf    <= 0;
+            wdata_buf     <= 0;
+            wstrb_buf     <= 0;
             wr_state      <= W_IDLE;
 
             reg_vga_ctrl  <= 32'd0;
@@ -273,13 +279,13 @@ module vga_registers #(
     // -------------------------------------------------------------------------
     // 7. AXI Read Channel FSM
     // -------------------------------------------------------------------------
-    always_ff @(posedge clk or posedge rst) begin
+    always @(posedge clk or posedge rst) begin
         if (rst) begin
             s_axi_arready <= 1'b1;
             s_axi_rvalid  <= 1'b0;
-            s_axi_rdata   <= '0;
+            s_axi_rdata   <= 0;
             s_axi_rresp   <= AXI_RESP_OKAY;
-            araddr_buf    <= '0;
+            araddr_buf    <= 0;
             rd_state      <= R_IDLE;
         end else begin
             case (rd_state)
@@ -294,6 +300,7 @@ module vga_registers #(
                                 ADDR_VGA_STATUS: s_axi_rdata <= reg_vga_status;
                                 ADDR_FB_BASE:    s_axi_rdata <= reg_fb_base; // Returns fixed 32'h5000_0000
                                 ADDR_FB_SIZE:    s_axi_rdata <= reg_fb_size;
+                                ADDR_INPUTS:     s_axi_rdata <= {24'd0, sw, btn};
                                 default:         s_axi_rdata <= 32'd0;
                             endcase
                             s_axi_rresp  <= AXI_RESP_OKAY;

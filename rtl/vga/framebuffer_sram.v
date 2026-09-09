@@ -1,8 +1,8 @@
 `timescale 1ns / 1ps
 
 module framebuffer_sram #(
-    parameter int FB_WIDTH  = 640,
-    parameter int FB_HEIGHT = 480
+    parameter FB_WIDTH  = 640,
+    parameter FB_HEIGHT = 480
 )(
     input  wire        clk,
     input  wire        en,
@@ -12,7 +12,7 @@ module framebuffer_sram #(
     output reg  [31:0] rdata
 );
 
-    localparam int FB_DEPTH = FB_WIDTH * FB_HEIGHT; // 307,200 pixels
+    localparam FB_DEPTH = FB_WIDTH * FB_HEIGHT; // 307,200 pixels
     reg [31:0] memory [0:FB_DEPTH-1];
 
     always @(posedge clk) begin

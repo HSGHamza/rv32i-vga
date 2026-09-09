@@ -1,0 +1,166 @@
+#Timing report of worst 5 path(s)
+# Unit scale: 1e-09 seconds
+# Output precision: 3
+
+#Path 1
+Startpoint: $auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Endpoint  : $auto$ff.cc:266:slice$17055.D[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Path Type : hold
+
+Point                                                                                                      Incr      Path
+-------------------------------------------------------------------------------------------------------------------------
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$12289.C[0] (FDCE_ZINI)                                                              2.462     2.462
+$auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI) [clock-to-output]                                            0.112     2.574
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].in[2] (.names)                        0.801     3.375
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].out[0] (.names)                       0.046     3.421
+$auto$ff.cc:266:slice$17055.D[0] (FDCE_ZINI)                                                              0.718     4.140
+data arrival time                                                                                                   4.140
+
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$17055.C[0] (FDCE_ZINI)                                                              2.399     2.399
+clock uncertainty                                                                                         0.000     2.399
+cell hold time                                                                                            0.181     2.580
+data required time                                                                                                  2.580
+-------------------------------------------------------------------------------------------------------------------------
+data required time                                                                                                 -2.580
+data arrival time                                                                                                   4.140
+-------------------------------------------------------------------------------------------------------------------------
+slack (MET)                                                                                                         1.559
+
+
+#Path 2
+Startpoint: $auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Endpoint  : $auto$ff.cc:266:slice$17055.CE[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Path Type : hold
+
+Point                                                                                          Incr      Path
+-------------------------------------------------------------------------------------------------------------
+clock $iopadmap$clk (rise edge)                                                               0.000     0.000
+clock source latency                                                                          0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                        0.000     0.000
+$auto$ff.cc:266:slice$12289.C[0] (FDCE_ZINI)                                                  2.462     2.462
+$auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI) [clock-to-output]                                0.112     2.574
+$abc$33822$auto$opt_dff.cc:194:make_patterns_logic$6137.in[1] (.names)                        0.740     3.314
+$abc$33822$auto$opt_dff.cc:194:make_patterns_logic$6137.out[0] (.names)                       0.051     3.365
+$auto$ff.cc:266:slice$17055.CE[0] (FDCE_ZINI)                                                 0.616     3.981
+data arrival time                                                                                       3.981
+
+clock $iopadmap$clk (rise edge)                                                               0.000     0.000
+clock source latency                                                                          0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                        0.000     0.000
+$auto$ff.cc:266:slice$17055.C[0] (FDCE_ZINI)                                                  2.399     2.399
+clock uncertainty                                                                             0.000     2.399
+cell hold time                                                                               -0.011     2.388
+data required time                                                                                      2.388
+-------------------------------------------------------------------------------------------------------------
+data required time                                                                                     -2.388
+data arrival time                                                                                       3.981
+-------------------------------------------------------------------------------------------------------------
+slack (MET)                                                                                             1.593
+
+
+#Path 3
+Startpoint: $auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Endpoint  : $auto$ff.cc:266:slice$12290.D[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Path Type : hold
+
+Point                                                                                                      Incr      Path
+-------------------------------------------------------------------------------------------------------------------------
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$12289.C[0] (FDCE_ZINI)                                                              2.462     2.462
+$auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI) [clock-to-output]                                            0.112     2.574
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].in[2] (.names)                        0.801     3.375
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].out[0] (.names)                       0.046     3.421
+$techmap45547$auto$ff.cc:266:slice$12290.D.in[1] (.names)                                                 0.899     4.320
+$techmap45547$auto$ff.cc:266:slice$12290.D.out[0] (.names)                                                0.044     4.364
+$auto$ff.cc:266:slice$12290.D[0] (FDCE_ZINI)                                                              0.000     4.364
+data arrival time                                                                                                   4.364
+
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$12290.C[0] (FDCE_ZINI)                                                              2.462     2.462
+clock uncertainty                                                                                         0.000     2.462
+cell hold time                                                                                            0.194     2.656
+data required time                                                                                                  2.656
+-------------------------------------------------------------------------------------------------------------------------
+data required time                                                                                                 -2.656
+data arrival time                                                                                                   4.364
+-------------------------------------------------------------------------------------------------------------------------
+slack (MET)                                                                                                         1.708
+
+
+#Path 4
+Startpoint: $auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Endpoint  : $auto$ff.cc:266:slice$12289.D[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Path Type : hold
+
+Point                                                                                                      Incr      Path
+-------------------------------------------------------------------------------------------------------------------------
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$12289.C[0] (FDCE_ZINI)                                                              2.462     2.462
+$auto$ff.cc:266:slice$12289.Q[0] (FDCE_ZINI) [clock-to-output]                                            0.112     2.574
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].in[2] (.names)                        0.801     3.375
+$techmap40970$abc$33822$auto$blifparse.cc:525:parse_blif$35606.A[0].out[0] (.names)                       0.046     3.421
+$techmap45415$auto$ff.cc:266:slice$12289.D.in[1] (.names)                                                 0.509     3.930
+$techmap45415$auto$ff.cc:266:slice$12289.D.out[0] (.names)                                                0.049     3.979
+$auto$ff.cc:266:slice$12289.D[0] (FDCE_ZINI)                                                              0.524     4.503
+data arrival time                                                                                                   4.503
+
+clock $iopadmap$clk (rise edge)                                                                           0.000     0.000
+clock source latency                                                                                      0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                    0.000     0.000
+$auto$ff.cc:266:slice$12289.C[0] (FDCE_ZINI)                                                              2.462     2.462
+clock uncertainty                                                                                         0.000     2.462
+cell hold time                                                                                            0.194     2.656
+data required time                                                                                                  2.656
+-------------------------------------------------------------------------------------------------------------------------
+data required time                                                                                                 -2.656
+data arrival time                                                                                                   4.503
+-------------------------------------------------------------------------------------------------------------------------
+slack (MET)                                                                                                         1.847
+
+
+#Path 5
+Startpoint: $auto$ff.cc:266:slice$12290.Q[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Endpoint  : $auto$ff.cc:266:slice$12291.D[0] (FDCE_ZINI clocked by $iopadmap$clk)
+Path Type : hold
+
+Point                                                                                                           Incr      Path
+------------------------------------------------------------------------------------------------------------------------------
+clock $iopadmap$clk (rise edge)                                                                                0.000     0.000
+clock source latency                                                                                           0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                         0.000     0.000
+$auto$ff.cc:266:slice$12290.C[0] (FDCE_ZINI)                                                                   2.462     2.462
+$auto$ff.cc:266:slice$12290.Q[0] (FDCE_ZINI) [clock-to-output]                                                 0.112     2.574
+$auto$alumacc.cc:485:replace_alu$8781.genblk1.slice[0].genblk1.carry4.S1[0] (CARRY4_VPR)                       0.718     3.292
+$auto$alumacc.cc:485:replace_alu$8781.genblk1.slice[0].genblk1.carry4.O2[0] (CARRY4_VPR)                       0.143     3.435
+$techmap45523$auto$ff.cc:266:slice$12291.D.in[0] (.names)                                                      0.610     4.045
+$techmap45523$auto$ff.cc:266:slice$12291.D.out[0] (.names)                                                     0.048     4.093
+$auto$ff.cc:266:slice$12291.D[0] (FDCE_ZINI)                                                                   0.884     4.977
+data arrival time                                                                                                        4.977
+
+clock $iopadmap$clk (rise edge)                                                                                0.000     0.000
+clock source latency                                                                                           0.000     0.000
+$iopadmap$zybo_top.clk.O[0] (IBUF_VPR)                                                                         0.000     0.000
+$auto$ff.cc:266:slice$12291.C[0] (FDCE_ZINI)                                                                   2.462     2.462
+clock uncertainty                                                                                              0.000     2.462
+cell hold time                                                                                                 0.181     2.643
+data required time                                                                                                       2.643
+------------------------------------------------------------------------------------------------------------------------------
+data required time                                                                                                      -2.643
+data arrival time                                                                                                        4.977
+------------------------------------------------------------------------------------------------------------------------------
+slack (MET)                                                                                                              2.334
+
+
+#End of timing report

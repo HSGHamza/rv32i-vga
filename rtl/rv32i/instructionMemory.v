@@ -1,47 +1,24 @@
+`timescale 1ns / 1ps
+
 module instructionMemory (
-    input clk,
-    input reset,
-    input write_enable,
-    input read_enable,
-    input [3:0] address,
-    input [31:0] data_in,
+    input             clk,
+    input             reset,
+    input      [31:0] address,
     output reg [31:0] data_out
 );
 
-reg [7:0] memory [0:63];
-integer i;
+    reg [31:0] memory [0:255];
 
-always @(*)
-begin
-memory[i] = data_in[7:0] 
-memory[i] = data_in[15:8]
-memory[i] = data_in[23:16]
-memory[i] = data_in[31:24]
-end
-
-always @(*)
-begin
-data_out[7:0] = memory[i] 
-data_out[15:8] = memory[i] 
-data_out[23:16] = memory[i] 
-data_out[31:24] = memory[i] 
-end
-
-always @(posedge clk) begin
-    if (reset) begin
-        for (i = 0; i < 16; i = i + 1)
-            memory[i] <= 32'b0;
-        data_out <= 32'b0;
+    initial begin
+        $readmemh("instructions.hex", memory);
     end
 
-        if (write_enable)
-            memory[address] <= data_in;
-
-        if (read_enable)
-            data_out <= memory[address];
+    always @(*) begin
+        if (address[31:10] != 0) begin
+            data_out = 32'h0000_0013; // Return NOP if outside range
+        end else begin
+            data_out = memory[address[9:2]];
+        end
     end
-end
 
 endmodule
-
-

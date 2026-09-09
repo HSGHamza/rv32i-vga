@@ -1,6 +1,8 @@
 `timescale 1ns / 1ps
 
-module vga_controller (
+module vga_controller #(
+    parameter PIXEL_SCALE = 1
+)(
     input  wire        clk,
     input  wire        rst,
 
@@ -42,7 +44,9 @@ module vga_controller (
     );
 
     // 2. Pixel Address Generator
-    pixel_addr_gen u_pixel_addr_gen (
+    pixel_addr_gen #(
+        .PIXEL_SCALE(PIXEL_SCALE)
+    ) u_pixel_addr_gen (
         .H_count    (H_count),
         .V_count    (V_count),
         .video_on   (raw_video_on),

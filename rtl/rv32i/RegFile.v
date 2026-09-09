@@ -1,9 +1,8 @@
-module RegFile(
-input clk,
+module RegFile( 
+input clk,reset,write_enable,
 input [4:0] rd, rs1, rs2,
 input [31:0] rw,
 output reg [31:0] rs1out,rs2out
-
 );
 
 //registers
@@ -118,12 +117,46 @@ end
 
 always @(posedge clk)
 begin
-
-case(rd)
-    5'd0:  x0  <= 32'd0;
-    5'd1:  x1  <= rw;
-    5'd2:  x2  <= rw;
-    5'd3:  x3  <= rw;
+    if(reset) begin
+        x0 <= 32'd0;
+        x1 <= 32'd0;
+        x2 <= 32'd0;
+        x3 <= 32'd0;
+        x4 <= 32'd0;
+        x5 <= 32'd0;
+        x6 <= 32'd0;
+        x7 <= 32'd0;
+        x8 <= 32'd0;
+        x9 <= 32'd0;
+        x10 <= 32'd0;
+        x11 <= 32'd0;
+        x12 <= 32'd0;
+        x13 <= 32'd0;
+        x14 <= 32'd0;
+        x15 <= 32'd0;
+        x16 <= 32'd0;
+        x17 <= 32'd0;
+        x18 <= 32'd0;
+        x19 <= 32'd0;
+        x20 <= 32'd0;
+        x21 <= 32'd0;
+        x22 <= 32'd0;
+        x23 <= 32'd0;
+        x24 <= 32'd0;
+        x25 <= 32'd0;
+        x26 <= 32'd0;
+        x27 <= 32'd0;
+        x28 <= 32'd0;
+        x29 <= 32'd0;
+        x30 <= 32'd0;
+        x31 <= 32'd0;
+    end
+    else if(write_enable)
+        case(rd)
+            5'd0:  x0  <= 32'd0;
+            5'd1:  x1  <= rw;
+            5'd2:  x2  <= rw;
+            5'd3:  x3  <= rw;
     5'd4:  x4  <= rw;
     5'd5:  x5  <= rw;
     5'd6:  x6  <= rw;

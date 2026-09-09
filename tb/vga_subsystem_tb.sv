@@ -516,17 +516,20 @@ module vga_subsystem_tb;
         // =====================================================================
         $display("[INFO] Running cycle-by-cycle HSYNC check for one full line (800 clocks)...");
         // Align to H_count = 0
-        while (u_vga_controller.u_vga_timing.H_count !== 16'd0) @(posedge clk);
+        while (u_vga_controller.u_vga_timing.H_count !== 16'd0) begin
+            @(posedge clk);
+            #1;
+        end
 
         for (int h = 0; h < 800; h++) begin
             logic exp_raw_hsync;
             exp_raw_hsync = ~((h >= (640 + 16)) && (h < (640 + 16 + 96))); // Active-low 656..751
-            @(posedge clk); #1;
             if (u_vga_controller.raw_hsync !== exp_raw_hsync) begin
                 $display("[FAIL] TEST 4: HSYNC timing mismatch at H=%0d. Expected %b, got %b",
                          h, exp_raw_hsync, u_vga_controller.raw_hsync);
                 errors++;
             end
+            @(posedge clk); #1;
         end
         $display("[PASS] TEST 4: HSYNC timing strictly matches standard 640x480 @ 60Hz.");
 
@@ -534,10 +537,11 @@ module vga_subsystem_tb;
         // TEST 5 & 6 — VSYNC & VIDEO_ON BOUNDARY VERIFICATION
         // =====================================================================
         $display("[INFO] Checking video_on boundaries and VSYNC pulse...");
-        // Wait until line 479
-        while (u_vga_controller.u_vga_timing.V_count !== 16'd479) @(posedge clk);
-        while (u_vga_controller.u_vga_timing.H_count !== 16'd639) @(posedge clk);
-        #1;
+        // Wait until line 479, pixel 639
+        while (!(u_vga_controller.u_vga_timing.V_count == 16'd479 && u_vga_controller.u_vga_timing.H_count == 16'd639)) begin
+            @(posedge clk);
+            #1;
+        end
         if (u_vga_controller.raw_video_on !== 1'b1) begin
             $display("[FAIL] TEST 6: Boundary (639, 479) video_on expected 1, got 0");
             errors++;
@@ -550,15 +554,19 @@ module vga_subsystem_tb;
         end
 
         // Advance to VSYNC lines (490, 491)
-        while (u_vga_controller.u_vga_timing.V_count !== 16'd490) @(posedge clk);
-        #1;
+        while (u_vga_controller.u_vga_timing.V_count !== 16'd490) begin
+            @(posedge clk);
+            #1;
+        end
         if (u_vga_controller.raw_vsync !== 1'b0) begin
             $display("[FAIL] TEST 5: VSYNC expected 0 (active-low) at line 490, got %b", u_vga_controller.raw_vsync);
             errors++;
         end
 
-        while (u_vga_controller.u_vga_timing.V_count !== 16'd492) @(posedge clk);
-        #1;
+        while (u_vga_controller.u_vga_timing.V_count !== 16'd492) begin
+            @(posedge clk);
+            #1;
+        end
         if (u_vga_controller.raw_vsync !== 1'b1) begin
             $display("[FAIL] TEST 5: VSYNC expected 1 at line 492, got %b", u_vga_controller.raw_vsync);
             errors++;
@@ -568,8 +576,10 @@ module vga_subsystem_tb;
         // TEST 7 — PIXEL ADDRESS GENERATION CHECK
         // =====================================================================
         // Wait for active video start (H=0, V=0)
-        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) @(posedge clk);
-        #1;
+        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) begin
+            @(posedge clk);
+            #1;
+        end
         if (vga_fb_addr !== 21'd0) begin
             $display("[FAIL] TEST 7: Pixel (0,0) address expected 0, got %0d", vga_fb_addr);
             errors++;
@@ -640,7 +650,10 @@ module vga_subsystem_tb;
         // =====================================================================
         $display("[INFO] Verifying pipeline display of Predefined Pattern (Red, Green, Blue, White)...");
         // Wait until raster reaches (0,0) with display enabled
-        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) @(posedge clk);
+        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) begin
+            @(posedge clk);
+            #1;
+        end
 
         // Word 0 (Red): Sampled at H=1 due to 1-clock synchronous SRAM latency
         @(posedge clk); #1; // H = 1
@@ -753,7 +766,10 @@ module vga_subsystem_tb;
         axi_write(FB_BASE + 32'd0, 32'h0000_00FF, 4'b1111, resp_val); // Blue
 
         // Scan next frame at (0,0)
-        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) @(posedge clk);
+        while (!(u_vga_controller.u_vga_timing.H_count == 16'd0 && u_vga_controller.u_vga_timing.V_count == 16'd0)) begin
+            @(posedge clk);
+            #1;
+        end
         @(posedge clk); #1; // H = 1
         if (red !== 8'h00 || green !== 8'h00 || blue !== 8'hFF) begin
             $display("[FAIL] TEST 20: Software update failed! Expected Blue (00,00,FF), got (%h,%h,%h)", red, green, blue);

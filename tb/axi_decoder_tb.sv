@@ -248,15 +248,37 @@ module axi_decoder_tb;
     initial clk = 0;
     always #20 clk = ~clk;
 
-    // Tie off unused Slave 0 inputs
-    assign s0_axi_awready = 1'b0;
-    assign s0_axi_wready  = 1'b0;
-    assign s0_axi_bvalid  = 1'b0;
-    assign s0_axi_bresp   = AXI_SLVERR;
-    assign s0_axi_arready = 1'b0;
-    assign s0_axi_rvalid  = 1'b0;
-    assign s0_axi_rresp   = AXI_SLVERR;
-    assign s0_axi_rdata   = 32'd0;
+    // -------------------------------------------------------------------------
+    // Connected Slave 0: axi_data_memory (Data RAM)
+    // -------------------------------------------------------------------------
+    axi_data_memory #(
+        .AXI_ADDR_WIDTH(AXI_ADDR_WIDTH),
+        .AXI_DATA_WIDTH(AXI_DATA_WIDTH),
+        .MEM_SIZE_BYTES(256),
+        .BASE_ADDR(32'h0000_0000)
+    ) u_data_memory (
+        .clk           (clk),
+        .rst           (rst),
+
+        .s_axi_awaddr  (s0_axi_awaddr),
+        .s_axi_awvalid (s0_axi_awvalid),
+        .s_axi_awready (s0_axi_awready),
+        .s_axi_wdata   (s0_axi_wdata),
+        .s_axi_wstrb   (s0_axi_wstrb),
+        .s_axi_wvalid  (s0_axi_wvalid),
+        .s_axi_wready  (s0_axi_wready),
+        .s_axi_bresp   (s0_axi_bresp),
+        .s_axi_bvalid  (s0_axi_bvalid),
+        .s_axi_bready  (s0_axi_bready),
+
+        .s_axi_araddr  (s0_axi_araddr),
+        .s_axi_arvalid (s0_axi_arvalid),
+        .s_axi_arready (s0_axi_arready),
+        .s_axi_rdata   (s0_axi_rdata),
+        .s_axi_rresp   (s0_axi_rresp),
+        .s_axi_rvalid  (s0_axi_rvalid),
+        .s_axi_rready  (s0_axi_rready)
+    );
 
     // -------------------------------------------------------------------------
     // Master Helper Tasks
@@ -546,13 +568,81 @@ module axi_decoder_tb;
         $display("[PASS] Response stability verified under master backpressure.");
 
         // ---------------------------------------------------------------------
-        // Check 19: Slave 0 is never selected
+        // Check 19: Data Memory (Slave 0) Write and Read at 0x0000_0000
         // ---------------------------------------------------------------------
-        if (s0_axi_awvalid !== 1'b0 || s0_axi_arvalid !== 1'b0) begin
-            $display("[FAIL] Slave 0 was erroneously selected!");
+        master_write_sync(32'h0000_0000, 32'h1234_5678, 4'b1111, resp);
+        if (resp !== AXI_OKAY) begin
+            $display("[FAIL] Data Memory 0x0000_0000 write failed with response %b", resp);
+            errors++;
+        end
+        master_read(32'h0000_0000, rdata, resp);
+        if (rdata !== 32'h1234_5678 || resp !== AXI_OKAY) begin
+            $display("[FAIL] Data Memory 0x0000_0000 read failed: data=%h, resp=%b", rdata, resp);
             errors++;
         end else begin
-            $display("[PASS] Slave 0 is never asserted in current configuration.");
+            $display("[PASS] Data Memory Word 0 (0x0000_0000) write/read correctly routed to Slave 0.");
+        end
+
+        // ---------------------------------------------------------------------
+        // Check 20: Data Memory (Slave 0) Write and Read at 0x0000_0040
+        // ---------------------------------------------------------------------
+        master_write_sync(32'h0000_0040, 32'hA5A5_5A5A, 4'b1111, resp);
+        master_read(32'h0000_0040, rdata, resp);
+        if (rdata !== 32'hA5A5_5A5A || resp !== AXI_OKAY) begin
+            $display("[FAIL] Data Memory 0x0000_0040 read failed: data=%h, resp=%b", rdata, resp);
+            errors++;
+        end else begin
+            $display("[PASS] Data Memory Word 16 (0x0000_0040) write/read correctly routed to Slave 0.");
+        end
+
+        // ---------------------------------------------------------------------
+        // Check 21: Data Memory (Slave 0) Boundary Word at 0x0000_00FC (Word 63)
+        // ---------------------------------------------------------------------
+        master_write_sync(32'h0000_00FC, 32'hDEAD_BEEF, 4'b1111, resp);
+        master_read(32'h0000_00FC, rdata, resp);
+        if (rdata !== 32'hDEAD_BEEF || resp !== AXI_OKAY) begin
+            $display("[FAIL] Data Memory boundary 0x0000_00FC read failed: data=%h, resp=%b", rdata, resp);
+            errors++;
+        end else begin
+            $display("[PASS] Data Memory upper boundary (0x0000_00FC) write/read verified.");
+        end
+
+        // ---------------------------------------------------------------------
+        // Check 22: Data Memory Byte Write Strobes (wstrb)
+        // ---------------------------------------------------------------------
+        master_write_sync(32'h0000_0020, 32'h1122_3344, 4'b1111, resp);
+        // Modify only byte 1 (bits 15:8) to 0xAA
+        master_write_sync(32'h0000_0020, 32'h0000_AA00, 4'b0010, resp);
+        // Modify only byte 3 (bits 31:24) to 0xFF
+        master_write_sync(32'h0000_0020, 32'hFF00_0000, 4'b1000, resp);
+        master_read(32'h0000_0020, rdata, resp);
+        if (rdata !== 32'hFF22_AA44 || resp !== AXI_OKAY) begin
+            $display("[FAIL] Data Memory byte strobe test failed: expected FF22AA44, got %h", rdata);
+            errors++;
+        end else begin
+            $display("[PASS] Data Memory byte strobes correctly executed.");
+        end
+
+        // ---------------------------------------------------------------------
+        // Check 23: Interleaved Data Memory & Framebuffer Operations (No Cross-talk)
+        // ---------------------------------------------------------------------
+        master_write_sync(32'h0000_0080, 32'hCAFE_BABE, 4'b1111, resp);
+        master_write_sync(32'h5000_0080, 32'h0042_4242, 4'b1111, resp);
+
+        master_read(32'h0000_0080, rdata, resp);
+        if (rdata !== 32'hCAFE_BABE || resp !== AXI_OKAY) begin
+            $display("[FAIL] Interleaved read of Data Memory 0x0000_0080 corrupted: %h", rdata);
+            errors++;
+        end
+
+        master_read(32'h5000_0080, rdata, resp);
+        if (rdata !== 32'h0042_4242 || resp !== AXI_OKAY) begin
+            $display("[FAIL] Interleaved read of Framebuffer 0x5000_0080 corrupted: %h", rdata);
+            errors++;
+        end
+
+        if (rdata === 32'h0042_4242) begin
+            $display("[PASS] Interleaved Data Memory and Framebuffer access confirmed with zero cross-talk.");
         end
 
         // ---------------------------------------------------------------------
