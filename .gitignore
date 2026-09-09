@@ -1,0 +1,44 @@
+# ==============================================================================
+# RV32I-VGA .gitignore
+# ==============================================================================
+
+# FPGA Toolchain Build Artifacts & Logs (F4PGA / SymbiFlow / Vivado)
+build/
+*.bit
+*.fasm
+*.eblif
+*.net
+*.place
+*.route
+*.ilang
+*.json.carry_fixup*
+*.rpt
+*.log
+noisy_warnings*
+
+# Simulation Outputs (QuestaSim / ModelSim / Icarus / Verilator)
+work/
+transcript
+*.wlf
+*.vcd
+*.cr.mti
+*.mpf
+covhtmlreport/
+*.ucdb
+
+# Raw simulation image dumps
+*.ppm
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Editor & OS Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
