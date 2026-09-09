@@ -3,8 +3,10 @@
 # ==============================================================================
 
 # FPGA Toolchain Build Artifacts & Logs (F4PGA / SymbiFlow / Vivado)
-build/
-*.bit
+build/**
+!build/**/
+!build/**/*.bit
+!*.bit
 *.fasm
 *.eblif
 *.net

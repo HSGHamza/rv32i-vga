@@ -60,52 +60,45 @@ This project implements an end-to-end computer system on an FPGA, spanning from 
 
 ```mermaid
 flowchart TB
-    subgraph FPGA_TOP [Digilent Zybo Z7-10: zybo_top.v]
-        CLK125[125 MHz Oscillator] --> CLK_DIV[Clock Divider /5]
-        CLK_DIV -->|25 MHz Pixel Clock| SOC
-        SW_RST[Switch SW0: Reset] --> RST_SYNC[Reset Synchronizer]
-        RST_SYNC --> SOC
-        BTNS[Buttons BTN0..3] --> SOC
-        SWS[Switches SW1..3] --> SOC
+    subgraph BOARD ["Digilent Zybo Z7-10 Board (zybo_top.v)"]
+        CLK125["125 MHz Oscillator (Pin K17)"] --> CLK_DIV["Clock Divider (/5)"]
+        CLK_DIV -->|"25 MHz Clock"| CPU_CORE["RV32I CPU Datapath"]
+        CLK_DIV -->|"25 MHz Clock"| VGA_CTRL["VGA Controller"]
 
-        subgraph SOC [SoC Top-Level: soc_top.v]
-            subgraph CPU [RV32I Processor Core: Datapath.v]
-                PC[ProgramCounter]
-                IMEM[Instruction Memory 1KB]
-                DEC[Instruction Decoder]
-                CTRL[Control Logic Unit]
-                RF[Register File 32x32]
-                ALU[ALU & Branch Unit]
+        SW_RST["Switch SW0 (Reset)"] --> RST_SYNC["Reset Synchronizer"]
+        RST_SYNC -->|"Sync Reset"| CPU_CORE
+        RST_SYNC -->|"Sync Reset"| VGA_REG["VGA Registers"]
+
+        subgraph SOC ["RV32I-VGA System-on-Chip (soc_top.v)"]
+            CPU_CORE <-->|"CPU Bus: addr, wdata, rdata, stall"| BRIDGE["RV32I to AXI4-Lite Bridge"]
+            BRIDGE <-->|"AXI4-Lite Master Bus"| DECODER["AXI Crossbar Decoder"]
+
+            subgraph SLV0 ["Slave 0: Data RAM"]
+                DMEM["AXI Data Memory (256 Bytes)"]
             end
 
-            BRIDGE[RV32I to AXI4-Lite Bridge: rv32i_axi_bridge.v]
-            DECODER[AXI Crossbar Decoder: axi_decoder.v]
-
-            subgraph SLV0 [Slave 0: Data RAM]
-                DMEM[AXI Data Memory 256B: axi_data_memory.v]
-            end
-
-            subgraph SLV1 [Slave 1: VGA Subsystem]
-                VGA_REG[VGA Registers & Arbiter: vga_registers.v]
-                FB_RAM[Framebuffer SRAM 76.8KB: framebuffer_sram.v]
-                VGA_CTRL[VGA Controller: vga_controller.v]
-                VGA_TIME[Timing Generator: vga_timing.v]
-                PIX_GEN[4x Pixel Address Gen: pixel_addr_gen.v]
-                RGB_OUT[RGB Output Formatter: rgb_output.v]
+            subgraph SLV1 ["Slave 1: VGA Subsystem"]
+                VGA_REG <-->|"Memory Port"| FB_RAM["Framebuffer SRAM (160x120)"]
+                FB_RAM -->|"32-bit Pixel Data"| VGA_CTRL
+                VGA_TIME["VGA Timing Generator"] -->|"H_count, V_count"| PIX_GEN["4x Pixel Address Gen"]
+                PIX_GEN -->|"Raster fb_addr"| VGA_REG
+                VGA_CTRL -->|"Video Pipeline"| RGB_OUT["RGB Output Formatter"]
             end
         end
 
-        SOC --> LEDS[Status LEDs: Active, Stall, MemWr, Heartbeat]
-        SOC --> PMOD_JC[Pmod JC: Red, Green, Blue, HSync, VSync]
-    end
+        DECODER <-->|"Slave 0: 0x0000_0000"| DMEM
+        DECODER <-->|"Slave 1: 0x1000_0000 and 0x5000_0000"| VGA_REG
 
-    CPU <-->|addr, wdata, we, re, rdata, stall| BRIDGE
-    BRIDGE <-->|AXI4-Lite Master| DECODER
-    DECODER <-->|AXI4-Lite Slave 0 (0x0000_0000)| DMEM
-    DECODER <-->|AXI4-Lite Slave 1 (0x1000_0000 / 0x5000_0000)| VGA_REG
-    VGA_REG <-->|Arbitrated Word Access| FB_RAM
-    FB_RAM -->|Pixel Stream| VGA_CTRL
-    VGA_CTRL --> RGB_OUT
+        BTNS["Pushbuttons (BTN0..3)"] -->|"Button Inputs"| VGA_REG
+        SWS["Switches (SW1..3)"] -->|"Switch Inputs"| VGA_REG
+
+        VGA_REG -->|"Display Active"| LED0["LED0: Video Active"]
+        BRIDGE -->|"CPU Stalled"| LED1["LED1: CPU Stall"]
+        CPU_CORE -->|"First Write"| LED2["LED2: Mem Written"]
+        CLK_DIV -->|"Heartbeat Blinker"| LED3["LED3: Heartbeat (~1.5 Hz)"]
+
+        RGB_OUT -->|"RGB111 Video & Sync"| PMOD_JC["Pmod JC Output (Pins V15, W15, T11, W14, Y14)"]
+    end
 ```
 
 ---
@@ -149,31 +142,31 @@ The top-level CPU datapath is defined in [`rtl/rv32i/Datapath.v`](file:///c:/Use
 
 ```mermaid
 flowchart LR
-    subgraph IF [Instruction Fetch]
-        PC[ProgramCounter] -->|pcRegister| IMEM[instructionMemory 1KB]
+    subgraph IF ["Instruction Fetch"]
+        PC2["ProgramCounter"] -->|"pcRegister"| IMEM2["instructionMemory (1 KB ROM)"]
     end
 
-    subgraph ID [Decode & Registers]
-        IMEM -->|instr| DEC[decoder]
-        DEC -->|opcode| CTRL[ControlLogic]
-        DEC -->|rs1, rs2, rd| RF[RegFile 32x32]
-        CTRL -->|reg_write & !stall| RF
+    subgraph ID ["Decode & Registers"]
+        IMEM2 -->|"instr"| DEC2["decoder"]
+        DEC2 -->|"opcode"| CTRL2["ControlLogic"]
+        DEC2 -->|"rs1, rs2, rd"| RF2["RegFile (32x32 GPR)"]
+        CTRL2 -->|"reg_write and not stall"| RF2
     end
 
-    subgraph EX [Execution & ALU]
-        RF -->|rs1out, rs2out| ALU[alu / RI_alu]
-        DEC -->|imm, func3, func7| ALU
-        ALU -->|doesB / jump| PC
+    subgraph EX ["Execution & ALU"]
+        RF2 -->|"rs1out, rs2out"| ALU2["alu / RI_alu"]
+        DEC2 -->|"imm, func3, func7"| ALU2
+        ALU2 -->|"Branch / Jump Target"| PC2
     end
 
-    subgraph MEM_WB [Bus Interface & Write-Back]
-        ALU -->|alu_out -> mem_addr| BUS[AXI Bridge]
-        RF -->|rs2out -> mem_wdata| BUS
-        CTRL -->|mem_read, mem_write| BUS
-        BUS -->|stall| PC
-        BUS -->|mem_rdata| MUX_WB{mem_to_reg}
-        ALU -->|alu_out| MUX_WB
-        MUX_WB -->|rw| RF
+    subgraph MEM_WB ["Bus Interface & Write-Back"]
+        ALU2 -->|"alu_out (mem_addr)"| BUS2["AXI Master Bridge"]
+        RF2 -->|"rs2out (mem_wdata)"| BUS2
+        CTRL2 -->|"mem_read, mem_write"| BUS2
+        BUS2 -->|"stall"| PC2
+        BUS2 -->|"mem_rdata"| MUX_WB2["mem_to_reg Multiplexer"]
+        ALU2 -->|"alu_out"| MUX_WB2
+        MUX_WB2 -->|"rw"| RF2
     end
 ```
 
