@@ -41,7 +41,8 @@ VERILOG_SRCS := \
 
 ENV_ACTIVATE := export F4PGA_INSTALL_DIR=$(F4PGA_INSTALL_DIR) && export FPGA_FAM=$(FPGA_FAM) && source $(F4PGA_INSTALL_DIR)/$(FPGA_FAM)/conda/etc/profile.d/conda.sh && conda activate $(FPGA_FAM)
 
-.PHONY: all bitstream synth pack place route fasm prog sim clean help
+.PHONY: all bitstream synth pack place route fasm prog sim clean help \
+        uvm_compile uvm_sanity uvm_unmapped uvm_random uvm_concurrent uvm_all
 
 all: bitstream
 
@@ -49,10 +50,16 @@ help:
 	@echo "========================================================================"
 	@echo " RV32I-VGA SoC Build System (Digilent Zybo Z7-10)"
 	@echo "========================================================================"
-	@echo " make bitstream  : Run full F4PGA flow and generate build/zybo/zybo_top.bit"
-	@echo " make prog       : Flash bitstream to Zybo Z7-10 via openFPGALoader"
-	@echo " make sim        : Run QuestaSim end-to-end SoC simulation"
-	@echo " make clean      : Remove build artifacts"
+	@echo " make bitstream     : Run full F4PGA flow and generate build/zybo/zybo_top.bit"
+	@echo " make prog          : Flash bitstream to Zybo Z7-10 via openFPGALoader"
+	@echo " make sim           : Run QuestaSim end-to-end SoC simulation"
+	@echo " make uvm_compile   : Compile UVM VIP, Environment, Tests, and Top"
+	@echo " make uvm_sanity    : Run UVM directed sanity test"
+	@echo " make uvm_unmapped  : Run UVM unmapped address error slave test"
+	@echo " make uvm_random    : Run UVM constrained-random stress test"
+	@echo " make uvm_concurrent: Run UVM concurrent back-to-back burst test"
+	@echo " make uvm_all       : Run complete UVM test suite"
+	@echo " make clean         : Remove build artifacts"
 	@echo "========================================================================"
 
 $(BUILD_DIR):
@@ -140,6 +147,50 @@ sim:
 		rtl/soc_top.v \
 		tb/soc_top_tb.sv
 	vsim -c -do "run 200us; quit -f" soc_top_tb
+
+# -----------------------------------------------------------------------------
+# UVM Verification Suite
+# -----------------------------------------------------------------------------
+UVM_SRCS := \
+	rtl/bus/axi_decoder.v \
+	rtl/bus/axi_data_memory.v \
+	rtl/vga/vga_registers.v \
+	rtl/vga/framebuffer_sram.v \
+	tb/uvm/vip/axi_lite/axi_lite_types.sv \
+	tb/uvm/vip/axi_lite/axi_lite_if.sv \
+	tb/uvm/vip/axi_lite/axi_lite_pkg.sv \
+	tb/uvm/env/axi_decoder_env_pkg.sv \
+	tb/uvm/tests/axi_decoder_test_pkg.sv \
+	tb/uvm/tb_top.sv
+
+UVM_INCDIRS := \
+	+incdir+rtl/bus \
+	+incdir+rtl/vga \
+	+incdir+tb/uvm/vip/axi_lite \
+	+incdir+tb/uvm/env \
+	+incdir+tb/uvm/tests
+
+uvm_compile:
+	@mkdir -p work
+	vlib work
+	vlog -sv $(UVM_INCDIRS) $(UVM_SRCS)
+
+uvm_sanity: uvm_compile
+	vsim -c -do "run -all; quit -f" +UVM_TESTNAME=axi_decoder_sanity_test tb_top
+
+uvm_unmapped: uvm_compile
+	vsim -c -do "run -all; quit -f" +UVM_TESTNAME=axi_decoder_unmapped_test tb_top
+
+uvm_random: uvm_compile
+	vsim -c -do "run -all; quit -f" +UVM_TESTNAME=axi_decoder_random_test tb_top
+
+uvm_concurrent: uvm_compile
+	vsim -c -do "run -all; quit -f" +UVM_TESTNAME=axi_decoder_concurrent_test tb_top
+
+uvm_all: uvm_compile uvm_sanity uvm_unmapped uvm_random uvm_concurrent
+	@echo "========================================================================"
+	@echo "  ALL UVM VERIFICATION TESTS COMPLETED SUCCESSFULLY!                    "
+	@echo "========================================================================"
 
 clean:
 	rm -rf $(BUILD_DIR) work transcript *.wlf

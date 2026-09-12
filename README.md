@@ -469,7 +469,36 @@ The [`tb/`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb) directory provides modula
 - [`tb/rv32i_dmem_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/rv32i_dmem_tb.sv): Verifies CPU memory read/write instructions over the AXI master bridge.
 - [`tb/vga_subsystem_tb.sv`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_subsystem_tb.sv): Full graphics subsystem verification covering framebuffer arbitration and timing.
 - [`tb/vga_registers_tb.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_registers_tb.v): Tests MMIO register read/write operations and busy flags.
-- [`tb/vga_tb.v`](file:///c:/Users/HSG/Desktop/rv32i-vga/tb/vga_tb.v): Timing verification for VGA sync pulses and active video intervals.
+- [`tb/vga_tb.v`](tb/vga_tb.v): Timing verification for VGA sync pulses and active video intervals.
+
+### UVM 1.2 Verification Environment
+
+A complete, production-grade UVM (Universal Verification Methodology 1.2) testbench is available under [`tb/uvm/`](tb/uvm), verifying the AXI4-Lite crossbar interconnect (`axi_decoder`), address routing, and slave memory spaces:
+
+- **AXI4-Lite Verification IP (`tb/uvm/vip/axi_lite/`)**:
+  - [`axi_lite_if.sv`](tb/uvm/vip/axi_lite/axi_lite_if.sv): Full AXI4-Lite standard interface (AW, W, B, AR, R).
+  - [`axi_lite_item.sv`](tb/uvm/vip/axi_lite/axi_lite_item.sv): Sequence item with address space, data, byte strobe, and timing constraints.
+  - [`axi_lite_driver.sv`](tb/uvm/vip/axi_lite/axi_lite_driver.sv): Active master protocol driver.
+  - [`axi_lite_monitor.sv`](tb/uvm/vip/axi_lite/axi_lite_monitor.sv): Passive non-intrusive protocol monitor.
+  - [`axi_lite_agent.sv`](tb/uvm/vip/axi_lite/axi_lite_agent.sv): Configurable active/passive agent.
+  - [`axi_lite_seq_lib.sv`](tb/uvm/vip/axi_lite/axi_lite_seq_lib.sv): Sanity, unmapped error, constrained-random, and concurrent burst sequences.
+- **Scoreboard & Coverage (`tb/uvm/env/`)**:
+  - [`axi_decoder_scoreboard.sv`](tb/uvm/env/axi_decoder_scoreboard.sv): Verifies address decoding to Slave 0 (RAM), Slave 1 (VGA/FB), data integrity, and error slave (`SLVERR`) responses.
+  - [`axi_decoder_coverage.sv`](tb/uvm/env/axi_decoder_coverage.sv): Functional coverage tracking operation types, memory regions, byte strobes, and cross coverage (>93% coverage).
+- **Test Suite (`tb/uvm/tests/`)**:
+  - `axi_decoder_sanity_test`: Directed read/write sanity test.
+  - `axi_decoder_unmapped_test`: Verifies error decoding on unmapped address holes.
+  - `axi_decoder_random_test`: 100+ constrained-random transactions.
+  - `axi_decoder_concurrent_test`: Zero-delay back-to-back burst test.
+
+#### Running UVM Verification (QuestaSim)
+```bash
+make uvm_sanity     # Run directed sanity test
+make uvm_unmapped   # Run unmapped address error test
+make uvm_random     # Run constrained-random test
+make uvm_concurrent # Run concurrent burst test
+make uvm_all        # Run complete UVM test suite
+```
 
 ### Running SoC Simulation
 
